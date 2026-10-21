@@ -50,6 +50,13 @@ class PlasticConfig:
     prop_gain: float = 1.0          # 传播权重的总增益（混合驱动时要抬，见 sync 注释）
     in_floor: float = 8.0           # 入边和的"免罚下限"：低于它不压，高于它按比例压枢纽
     out_floor: float = 1e-6         # 出边和下限（防除零）
+    # 特异性闸门（PMI）：压掉"什么都能连"的万金油连接
+    pmi_gate: bool = True
+    pmi_steep: float = 1.2          # 字神经元网络实测的陡度
+    pmi_offset: float = 0.0         # PMI 零点
+    pmi_floor: float = 0.12         # 闸门下限（再差也留 12%）
+    pmi_decay_every: int = 500      # 多久把共现计数衰减一次（滑动窗口）
+    pmi_decay: float = 0.97
 
 
 class PlasticRule:
@@ -64,6 +71,8 @@ class PlasticRule:
         self._nd: list[int] = []
         self._nw: list[float] = []
         self._prev = np.zeros(0, np.int64)
+        self._cnt_unit = np.zeros(0, np.float32)      # 每个单元被激活的次数
+        self._cnt_pair: dict[int, float] = {}         # 每对边的共现次数
         self._grown = 0
         self._strengthened = 0
         self.t = 0
@@ -80,6 +89,10 @@ class PlasticRule:
         cur = np.unique(np.asarray(cur_active, np.int64))
         prev = self._prev if prev_active is None else np.unique(
             np.asarray(prev_active, np.int64))
+        if self._cnt_unit.size != engine.n:
+            self._cnt_unit = np.zeros(engine.n, np.float32)
+        if len(cur):
+            np.add.at(self._cnt_unit, cur, 1.0)
         grown = strengthened = 0
         if len(prev) and len(cur):
             grown, strengthened = self._hebb(engine, prev, cur)
@@ -89,6 +102,14 @@ class PlasticRule:
                              or self.t % max(1, self.cfg.flush_every) == 0))
         if due:
             pruned = self.flush(engine)
+        if self.cfg.pmi_decay_every and self.t % self.cfg.pmi_decay_every == 0:
+            self._cnt_unit *= self.cfg.pmi_decay
+            for k in list(self._cnt_pair):
+                v = self._cnt_pair[k] * self.cfg.pmi_decay
+                if v < 1e-3:
+                    del self._cnt_pair[k]
+                else:
+                    self._cnt_pair[k] = v
         self._prev = cur
         return dict(edges=self.count(engine), grown=grown,
                     strengthened=strengthened, pruned=pruned,
@@ -151,20 +172,26 @@ class PlasticRule:
         n = engine.n
         mask_prev = np.zeros(n, bool)
         mask_prev[prev] = True
+        mask_cur = np.zeros(n, bool)
+        mask_cur[cur] = True
         newly = cur[~mask_prev[cur]]        # 这一拍"刚亮"的
+        dropped = prev[~mask_cur[prev]]     # 上一拍亮、这一拍已灭的（"先亮的"）
         # 1) 顺序：上一拍亮 → 这一拍亮
-        n_all = len(prev) * len(cur)
+        # 只有"刚变化的"参与（链式库 plastic2 的规则）：
+        #   上一拍亮、这一拍灭的  →  这一拍刚亮的
+        # 不这样做，A 的边会大量指回 A 自己（实测 56%），转移被淹没。
+        pre = dropped if len(dropped) else prev
+        post = newly if len(newly) else cur
+        n_all = len(pre) * len(post)
         if n_all <= cfg.full_cross:
-            # 全配对：换画面的那一刻，把"上一批 × 这一批"全部学一遍。
-            # 抽样会让真转移一万次里也抽不到几次（上一轮的教训）。
-            ii = np.repeat(prev, len(cur))
-            jj = np.tile(cur, len(prev))
+            ii = np.repeat(pre, len(post))
+            jj = np.tile(post, len(pre))
             keep = ii != jj
             self._apply_pairs(engine, ii[keep], jj[keep], cfg.eta)
         else:
             n_pair = min(cfg.max_pairs, n_all)
-            ii = prev[self.rng.integers(0, len(prev), n_pair)]
-            jj = cur[self.rng.integers(0, len(cur), n_pair)]
+            ii = pre[self.rng.integers(0, len(pre), n_pair)]
+            jj = post[self.rng.integers(0, len(post), n_pair)]
             keep = ii != jj
             self._apply_pairs(engine, ii[keep], jj[keep], cfg.eta)
         # 2) 同拍刚亮：互相加强（双向，弱）
@@ -189,6 +216,7 @@ class PlasticRule:
         grown = 0
         for a, b in zip(s, d):
             k = a * n + b
+            self._cnt_pair[k] = self._cnt_pair.get(k, 0.0) + 1.0
             i = self._idx.get(k)
             if i is not None:
                 w = engine.w[i]
@@ -274,7 +302,28 @@ class PlasticRule:
         denom = np.maximum(out[engine.src[idx]], cfg.out_floor)
         # 枢纽抑制：入边和超过下限的目标按比例摊薄（"什么都能连"的单元不该广播）
         hub = np.maximum(inn[engine.dst[idx]], cfg.in_floor) / cfg.in_floor
-        engine.wp[idx] = (ws / denom / hub * cfg.prop_gain).astype(np.float32)
+        wp = ws / denom / hub * cfg.prop_gain
+        # 特异性闸门（PMI）：只和"总是跟我一起出现"的伙伴保留强连接。
+        # 万金油单元（跟谁都能一起亮）的 PMI 低，被压到 floor。
+        if cfg.pmi_gate and self._cnt_unit.size == engine.n and self.t > 5:
+            wp = wp * self.gates(engine, idx)
+        engine.wp[idx] = wp.astype(np.float32)
+
+    def gates(self, engine, idx=None) -> np.ndarray:
+        """每条边的特异性闸门（0.12..1）。万金油连接的 PMI 低，被压到下限。"""
+        cfg = self.cfg
+        if idx is None:
+            idx = np.flatnonzero(engine.group == cfg.group)
+        keys = engine.src[idx].astype(np.int64) * engine.n + engine.dst[idx]
+        cab = np.fromiter((self._cnt_pair.get(k, 0.0) for k in keys),
+                          dtype=np.float32, count=len(keys))
+        T = max(1.0, float(self.t))
+        pa = self._cnt_unit[engine.src[idx]] / T
+        pb = self._cnt_unit[engine.dst[idx]] / T
+        eps = 1e-6
+        pmi = np.log((cab / T + eps) / ((pa + eps) * (pb + eps)))
+        return (cfg.pmi_floor + (1.0 - cfg.pmi_floor) / (
+            1.0 + np.exp(-cfg.pmi_steep * (pmi - cfg.pmi_offset)))).astype(np.float32)
 
     def count(self, engine) -> int:
         return int((engine.group == self.cfg.group).sum())

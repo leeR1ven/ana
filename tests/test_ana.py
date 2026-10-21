@@ -244,6 +244,25 @@ def test_adaptation_habituates():
     assert float(eng.act_np[a[1]]) > 0.1
 
 
+def test_pmi_gate():
+    """特异性闸门：同样的共现次数，稀有搭档的闸门要高于万金油搭档。"""
+    eng = Engine(EngineConfig(target_active=0))
+    ids = eng.add_block(6, kind="pfc", region="p", thr=0.0, soft=1.0)
+    eng.finalize()
+    rule = PlasticRule(PlasticConfig(enabled=True, topk_out=100,
+                                     pmi_gate=True, pmi_steep=1.2, pmi_floor=0.12))
+    # 稀有对 0→1（各自只出现 10 次，一起出现 10 次）
+    # 万金油 4→5（各自出现 80 次，也只一起出现 10 次）
+    rule._cnt_unit = np.array([10, 10, 0, 0, 80, 80], np.float32)
+    rule._cnt_pair = {0 * 6 + 1: 10.0, 4 * 6 + 5: 10.0}
+    rule.t = 100
+    eng.add_edges(np.array([0, 4], np.int32), np.array([1, 5], np.int32),
+                  np.array([0.5, 0.5], np.float32), group=40)
+    g = rule.gates(eng)
+    assert g[0] > g[1], f"稀有搭档应更被保留：{g}"
+    assert g[0] > 0.5 and g[1] < 0.5
+
+
 def test_plastic_disabled_is_noop():
     b = tiny()
     rule = PlasticRule(PlasticConfig(enabled=False))
