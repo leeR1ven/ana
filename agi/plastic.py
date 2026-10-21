@@ -51,6 +51,7 @@ class PlasticConfig:
     min_change: float = 0.3         # 只在"画面明显变了"时学顺序（重叠<70% 才算换场景）
     settle_overlap: float = 0.0     # >0：只在码"稳定下来之后"学（用稳定码之间的转移）
     settle_ticks: int = 3           # 连续几拍够稳才算稳定
+    novelty_window: int = 0         # >0：只把"最近几段稳定码里没出现过"的单元当学习目标
     flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
@@ -87,6 +88,9 @@ class PlasticRule:
         self._prev = np.zeros(0, np.int64)
         self._settled = None            # 上一次"稳定下来"的码
         self._stable_run = 0
+        self._hist: list[np.ndarray] = []   # 最近几段稳定码
+        self._seen = np.zeros(0, np.int32)
+        self._recent = np.zeros(0, bool)
         self._grown = 0
         self._strengthened = 0
         self.t = 0
@@ -115,9 +119,25 @@ class PlasticRule:
             else:
                 self._stable_run = 0
             if self._stable_run == self.cfg.settle_ticks:
+                if self._seen.size != engine.n:
+                    self._seen = np.zeros(engine.n, np.int32)
+                    self._recent = np.zeros(engine.n, bool)
                 if self._settled is not None and len(self._settled):
-                    grown, strengthened = self._hebb(engine, self._settled, cur)
+                    if self.cfg.novelty_window > 0:
+                        # 只学"新出现"的单元：最近几段稳定码里没出现过的
+                        targets = cur[~self._recent[cur]]
+                        if len(targets):
+                            grown, strengthened = self._hebb(engine, self._settled, targets)
+                    else:
+                        grown, strengthened = self._hebb(engine, self._settled, cur)
                 self._settled = cur
+                # 维护"最近 seen 过"的窗口
+                self._hist.append(cur)
+                np.add.at(self._seen, cur, 1)
+                if len(self._hist) > max(1, int(self.cfg.novelty_window)):
+                    old = self._hist.pop(0)
+                    np.subtract.at(self._seen, old, 1)
+                self._recent = self._seen > 0
         elif len(prev) and len(cur):
             grown, strengthened = self._hebb(engine, prev, cur)
         self.t += 1
