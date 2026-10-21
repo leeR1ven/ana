@@ -420,10 +420,24 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                                rng.uniform(*geo.bands[L.region],
                                                            max(1, size // 2)),
                                                rng.random(max(1, size // 2))], axis=1))
-            # 前额叶（随机铺开）→ 第一级 / 抑制细胞
-            pick1 = _sample_no_replace(rng, pfc, nr1, 6)
-            eng.connect(np.repeat(ret1, 6), pick1.reshape(-1),
-                        rng.uniform(0.15, 0.25, nr1 * 6), group=G.RET_L1)
+            # 回程闸门：只有这一拍最强的几条前额叶信号能开回程（激活 > 抑制），
+            # 而且随思考焦点移动——闸门用 top-k 选最强，不是"大面积活跃才开"。
+            ng = max(2, min(spec.return_gate, len(pfc)))
+            gate = eng.add_block(ng, kind="ret_relay", region=L.region, depth=L.depth,
+                                 thr=0.0, soft=1.0,
+                                 pos=band_positions(geo, L.region, ng, rng, geo.x_return + 0.04))
+            pickg = _sample_no_replace(rng, pfc, ng, min(8, len(pfc)))
+            eng.connect(np.repeat(gate, pickg.shape[1]), pickg.reshape(-1),
+                        rng.uniform(0.10, 0.20, gate.size * pickg.shape[1]),
+                        group=G.RET_L1)
+            eng.set_thr(gate, thr_frac=0.5, soft_frac=0.5)
+            eng.register_topk(gate, max(1, min(spec.return_gate_k, ng)))
+            # 闸门 → 第一级 / 抑制细胞（抑制细胞仍看前额叶整体）
+            pick1 = _sample_no_replace(rng, gate, nr1, 2)
+            eng.connect(np.repeat(ret1, 2), pick1.reshape(-1),
+                        rng.uniform(0.3, 0.5, nr1 * 2), group=G.RET_L1)
+            ids["ret_gate"] = ids.get("ret_gate", {})
+            ids["ret_gate"][(L.region, L.depth)] = gate
             picki = _sample_no_replace(rng, pfc, 1, min(20, len(pfc)))
             eng.connect(np.repeat(ret_inh, len(picki[0])), picki.reshape(-1),
                         rng.uniform(0.15, 0.25, len(picki[0])), group=G.RET_FROM_PFC)
@@ -539,6 +553,11 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         if verbose:
             print(f"[ANA] 标定 {calib_ticks} 拍：前额叶门槛={cal['thr_median']:.4f}"
                   f"（中位）  预计活跃≈{cal['pfc_frac']*100:.1f}%")
+    if spec.return_adapt > 0 and ids["ret"]:
+        # 回程只做"亮一下就过去"的调制：给回程中继自己加习惯化。
+        ret_ids = np.concatenate([np.concatenate([v[1], v[2]]) for v in ids["ret"].values()])
+        eng.set_adaptation(ret_ids, spec.return_adapt)
+        eng._adapt_np[ret_ids] = spec.return_adapt
     if spec.pfc_adapt > 0:
         # 自适应在标定之后开：标定要看原始驱动，不能看"减掉基线"之后的。
         kept_ids = []

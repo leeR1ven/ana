@@ -42,6 +42,7 @@ class PlasticConfig:
     decay_every: int = 2000         # 每多少拍整体降权一次
     decay: float = 0.995
     max_pairs: int = 4096           # 一拍最多处理几对（防止爆）
+    min_change: float = 0.3         # 只在"画面明显变了"时学顺序（重叠<70% 才算换场景）
     flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
@@ -139,6 +140,12 @@ class PlasticRule:
     def _hebb(self, engine, prev: np.ndarray, cur: np.ndarray) -> tuple[int, int]:
         cfg = self.cfg
         self._grown = self._strengthened = 0
+        # 同一画面持续时不学：那不是"先 A 后 B"，只是"还停在 A"。
+        # 不排除它，自我关联会淹没真正的转移（实测 7/8 的拍都是这种情况）。
+        if len(cur):
+            overlap = len(np.intersect1d(prev, cur, assume_unique=True)) / len(cur)
+            if overlap > 1.0 - cfg.min_change:
+                return 0, 0
         n = engine.n
         mask_prev = np.zeros(n, bool)
         mask_prev[prev] = True

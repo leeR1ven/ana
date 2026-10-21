@@ -84,6 +84,11 @@ class Spec:
     # 前额叶自适应（习惯化）：每拍减掉自己的滑动平均驱动。
     # 0 = 关；0.05 相当于约 20 小步（200 ms）的时间常数。
     pfc_adapt: float = 0.0
+    # 回程闸门：每拍只让前额叶最强的几条信号通过（回程随思考焦点移动）
+    return_gate: int = 32
+    return_gate_k: int = 6
+    # 回程通路也会习惯化：亮过之后自己衰减，下一拍被压住，不会来回激。
+    return_adapt: float = 0.2
     motor_group: int = 512          # 运动相关前额叶组大小（跨区汇聚）
     motor_target_frac: float = 0.10  # 运动组标定目标活跃比例（比前额叶松）
     # ---- 运动区 ----
