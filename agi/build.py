@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """按规格把大脑搭出来。
 
 一次 build 的产物（`Brain`）就是 v0 的完整空框架：
@@ -46,6 +46,8 @@ class G:
     RET_INH = 16       # 回程抑制细胞 → 第一级
     RET_L1 = 17        # 前额叶 → 第一级（随机铺开）
     RET_L2 = 18        # 第二级 → 本层神经元
+    REFLEX = 50        # 各区 L5 → 反射中继（第二套控制，天生不可改）
+    REFLEX_INH = 51    # 抑制细胞 → 反射中继（前额叶用它压制反射）
     PFC = 30           # 往前额叶送的整条通路（层→中继→中继→额叶）
     PLASTIC = -1       # 预留：可塑边（v0 为 0 条）
     PL_PFC = 40        # 预留：前额叶内部联想边（v0 为 0 条）
@@ -503,9 +505,45 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         eng.connect(np.repeat(f, 2), inh[ti].reshape(-1),
                     np.full(spec.n_force * 2, 1.1, np.float32), group=G.MOTOR_BLOCK)
 
-    ids["motor"] = dict(pfc=mpfc, relay=mr1, force=mforce, inh=inh, deinh=deinh)
-    motor = dict(mpfc=mpfc, mr1=mr1, force=mforce, inh=inh, deinh=deinh,
-                 sub=sub)
+    # ---- 第二套控制：各区直连运动区（反射/习惯），出生接线、不可改变 ----
+    # 现状：接线通了、自检过，但"前额叶压制反射"的效果还没调出来（见 docs/P4_LOG.md）
+    reflex = None
+    rinh = None
+    if spec.reflex_on:
+        n_ref = spec.n_muscle * 8
+        reflex = eng.add_block(n_ref, kind="motor_relay", region="motor", depth=6,
+                               thr=0.0, soft=1.0,
+                               pos=_band_pos(geo, "motor", n_ref, rng,
+                                             geo.x_motor_relay + 0.06))
+        carry = np.concatenate([layers[f"{r}.L{d}"].ids
+                               for r in ("balance", "touch")
+                               for d in (1, 2) if f"{r}.L{d}" in layers])
+        if len(carry):
+            pickr = _sample_no_replace(rng, carry, n_ref, 8)
+            eng.connect(np.repeat(reflex, 8), pickr.reshape(-1),
+                        rng.uniform(0.20, 0.30, n_ref * 8), group=G.REFLEX)
+        eng.set_thr(reflex, thr_frac=0.25, soft_frac=0.30)
+        for m in range(spec.n_muscle):
+            members = reflex[m * 8:(m + 1) * 8]
+            f = mforce[m]
+            eng.connect(np.repeat(f, 8), np.tile(members, spec.n_force),
+                        np.full(spec.n_force * 8, 1.0, np.float32), group=G.REFLEX)
+        if spec.reflex_inh:
+            rinh = eng.add_block(16, kind="motor_inh", region="motor", depth=6,
+                                 inh=True, thr=0.0, soft=1.0,
+                                 pos=_band_pos(geo, "motor", 16, rng,
+                                               geo.x_motor_gate + 0.04))
+            pr = _sample_no_replace(rng, mpfc, 16, 8)
+            eng.connect(np.repeat(rinh, 8), pr.reshape(-1),
+                        rng.uniform(0.1, 0.2, 16 * 8), group=G.MOTOR_GRP)
+            eng.set_thr(rinh, thr_frac=0.45, soft_frac=0.40)
+            eng.connect(reflex, np.repeat(rinh, n_ref // 16)[:n_ref],
+                        np.full(n_ref, 1.2, np.float32)[:n_ref], group=G.REFLEX_INH)
+        ids["motor"]["reflex"] = reflex
+    ids["motor"] = dict(pfc=mpfc, relay=mr1, force=mforce, inh=inh, deinh=deinh,
+                        reflex=reflex, reflex_inh=ids["motor"].get("reflex_inh"))
+    motor = dict(mpfc=mpfc, mr1=mr1, force=mforce, inh=inh, deinh=deinh, sub=sub,
+                 reflex=reflex, reflex_inh=ids["motor"].get("reflex_inh"))
 
     # ---------------------------------------------------------- 5. 收尾
     eng.finalize()
