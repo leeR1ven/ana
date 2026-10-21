@@ -513,10 +513,22 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         # 常亮/常灭的神经元不带"是哪一个输入"的信息，不往前额叶送。
         # 必须在标定之前做：否则门槛会把死单元也算进分位数。
         _filter_invariant(brain)
+    k_total = None
+    if spec.pfc_topk > 0:
+        # 前额叶动态抑制：每拍只留最强的 k 个（字神经元网络的做法）。
+        k_total = 0
+        for (r, d), g in pfc_groups.items():
+            bad = brain.filtered.get(f"{r}.L{d}") if brain.filtered else None
+            kept = int((~bad).sum()) if bad is not None else len(g)
+            k = max(1, int(round(spec.pfc_topk * kept)))
+            eng.register_topk(g, k)
+            k_total += k
+        eng.rebuild_backend()
     kept_pfc = sum(int((~m).sum()) for m in brain.filtered.values()) if brain.filtered \
         else int(sum(len(v) for v in pfc_groups.values()))
     total_pfc = kept_pfc + nm
-    eng.cfg.target_active = max(1, int(round(spec.pfc_target_frac * total_pfc)))
+    eng.cfg.target_active = (max(1, int(k_total)) if k_total
+                             else max(1, int(round(spec.pfc_target_frac * total_pfc))))
     if do_calibrate:
         cal = calibrate(brain, ticks=calib_ticks, seed=spec.seed + 101)
         if verbose:

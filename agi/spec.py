@@ -78,6 +78,9 @@ class Spec:
     filter_min_rate: float = 0.02   # 参考分布里活跃率的下限（低于=常灭）
     filter_max_rate: float = 0.60   # 上限（高于=常亮；这种单元几乎不带"是哪一个输入"）
     filter_ticks: int = 12          # 用多少个参考场景统计
+    # 前额叶动态抑制：每拍只留最强的这个比例（0 = 关）。
+    # 字神经元网络的"动态抑制"；v0 默认关，P1 对照实验用。
+    pfc_topk: float = 0.0
     motor_group: int = 512          # 运动相关前额叶组大小（跨区汇聚）
     motor_target_frac: float = 0.10  # 运动组标定目标活跃比例（比前额叶松）
     # ---- 运动区 ----
@@ -168,6 +171,8 @@ class Spec:
             e.append("filter_min_rate 必须 < filter_max_rate，且在 [0,1]")
         if int(self.filter_ticks) < 1:
             e.append("filter_ticks 至少 1")
+        if not (0.0 <= self.pfc_topk < 1.0):
+            e.append("pfc_topk 必须在 [0,1)")
 
         if not (1 <= int(self.substeps) <= 8):
             e.append("substeps 必须在 1..8")

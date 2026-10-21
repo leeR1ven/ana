@@ -45,7 +45,8 @@ class PlasticConfig:
     flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
-    in_floor: float = 1.0           # 入边和下限（防除零）
+    prop_gain: float = 1.0          # 传播权重的总增益（混合驱动时要抬，见 sync 注释）
+    in_floor: float = 1.0           # 出边和下限（防除零）
 
 
 class PlasticRule:
@@ -211,7 +212,14 @@ class PlasticRule:
 
     # ------------------------------------------------------------ 传播权重
     def sync(self, engine) -> None:
-        """连接强度 W → 传播权重 Ŵ（扇出/扇入归一 + 锐化）。"""
+        """连接强度 W → 传播权重 Ŵ。
+
+        这里和字神经元网络有一处**有意的偏差**：原库除"出边和"之后再除"入边和"，
+        因为那里的 W 是唯一驱动。我们这里前额叶还有一条 1:1 的感觉线，
+        两份归一叠起来会把联想压到 1%（实测 0.0065/边，占驱动 1.17%），
+        等于白学。所以只保留扇出归一（一个源把总输出摊到它的 top-k 上），
+        再做 W^sharpen 锐化，最后乘 prop_gain。
+        """
         cfg = self.cfg
         m = engine.group == cfg.group
         if not m.any():
@@ -219,11 +227,9 @@ class PlasticRule:
         idx = np.flatnonzero(m)
         w = np.maximum(engine.w[idx], 0.0)
         out = np.bincount(engine.src[idx], weights=w, minlength=engine.n)
-        inn = np.bincount(engine.dst[idx], weights=w, minlength=engine.n)
         ws = w ** cfg.sharpen
-        denom = np.maximum(out[engine.src[idx]], 1e-6)
-        denom2 = np.maximum(inn[engine.dst[idx]], cfg.in_floor)
-        engine.wp[idx] = (ws / denom / denom2).astype(np.float32)
+        denom = np.maximum(out[engine.src[idx]], cfg.in_floor)
+        engine.wp[idx] = (ws / denom * cfg.prop_gain).astype(np.float32)
 
     def count(self, engine) -> int:
         return int((engine.group == self.cfg.group).sum())
