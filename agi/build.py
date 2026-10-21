@@ -338,11 +338,15 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         eng.connect(np.repeat(off_ids, N), neg_cells.reshape(-1),
                     rng.uniform(0.6, 1.0, C * N), group=G.FWD)
         k1 = max(1, int(round(spec.l1_active * size1)))
-        eng.set_thr(l1, *DEPTH_FRAC[1])
+        # 层内不设绝对门槛：用"驱动 ÷ 自己的入边和"当相对强度，再由 top-k 选。
+        # 这样不会因为"门槛刚好卡在活动水平上"让整层抖动（local3d 的做法）。
+        # 归一化到"典型驱动 = 1"：入边和 × 上一层通常的活跃比例。
+        # 输入层每通道恰好一半亮，所以比例是 0.5。
+        eng.set_thr(l1, thr=0.0, soft=eng.in_weight_sum(l1) * 0.5)
         eng.register_topk(l1, k1)
         layers[f"{r}.L1"] = LayerInfo(f"{r}.L1", r, 1, l1, k1)
         geos[r] = l1_geo
-        prev, prev_geo = l1, l1_geo
+        prev, prev_geo, prev_k, prev_size = l1, l1_geo, k1, size1
         # L2..L5
         for i, ratio in enumerate(spec.layer_ratio):
             depth = i + 2
@@ -356,13 +360,13 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                 pos=_layer_positions(geo, r, H, W, R,
                                                      geo.layer_x(depth), rng))
             connect_near(eng, blk, prev, src_geo=prev_geo, dst_geo=g,
-                         k=spec.k_near, rng=rng, group=G.FWD,
-                         thr_frac=DEPTH_FRAC[depth][0],
-                         soft_frac=DEPTH_FRAC[depth][1])
+                         k=spec.k_near, rng=rng, group=G.FWD)
+            frac = max(1e-3, prev_k / max(1, prev_size))
+            eng.set_thr(blk, thr=0.0, soft=eng.in_weight_sum(blk) * frac)
             k = max(1, int(round(spec.layer_active[i] * size)))
             eng.register_topk(blk, k)
             layers[f"{r}.L{depth}"] = LayerInfo(f"{r}.L{depth}", r, depth, blk, k)
-            prev, prev_geo = blk, g
+            prev, prev_geo, prev_k, prev_size = blk, g, k, size
         ids["layers"][r] = [layers[f"{r}.L{d}"].ids for d in range(1, len(spec.layer_ratio) + 2)]
 
     # ---------------------------------------------------------- 3. 专用线 → 前额叶
@@ -395,7 +399,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             pick = _sample_no_replace(rng, r2, psize, fan)      # (psize, fan)
             eng.connect(np.repeat(pfc, fan), pick.reshape(-1),
                         rng.uniform(0.05, 0.20, psize * fan), group=G.PFC)
-        eng.set_thr(pfc, spec.pfc_thr_frac, spec.pfc_soft_frac)
+        eng.set_thr(pfc, thr_frac=spec.pfc_thr_frac, soft_frac=spec.pfc_soft_frac)
         pfc_groups[(L.region, L.depth)] = pfc
         ids["relay"][(L.region, L.depth)] = (r1, r2)
         # ---- 回程（不落 L1；只做调制）
@@ -433,9 +437,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             wret = rng.uniform(0.02, 0.06, size=(len(ret2), 2))
             eng.connect(tgt.reshape(-1), np.repeat(ret2, 2), wret.reshape(-1),
                         group=G.RET_L2)
-            eng.set_thr(ret1, 0.30, 0.35)
-            eng.set_thr(ret2, 0.30, 0.35)
-            eng.set_thr(ret_inh, 0.45, 0.45)
+            eng.set_thr(ret1, thr_frac=0.30, soft_frac=0.35)
+            eng.set_thr(ret2, thr_frac=0.30, soft_frac=0.35)
+            eng.set_thr(ret_inh, thr_frac=0.45, soft_frac=0.45)
             ids["ret"][(L.region, L.depth)] = (ret_inh, ret1, ret2)
 
     # ---------------------------------------------------------- 4. 运动区
@@ -450,7 +454,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     pick = _sample_no_replace(rng, pool, nm, 8)
     eng.connect(np.repeat(mpfc, 8), pick.reshape(-1),
                 rng.uniform(0.05, 0.20, nm * 8), group=G.MOTOR_GRP)
-    eng.set_thr(mpfc, spec.pfc_thr_frac, spec.pfc_soft_frac)
+    eng.set_thr(mpfc, thr_frac=spec.pfc_thr_frac, soft_frac=spec.pfc_soft_frac)
     mr1 = eng.add_block(nm, kind="motor_relay", region="motor", depth=6, thr=0.0, soft=1.0,
                         pos=_band_pos(geo, "motor", nm, rng, geo.x_motor_relay))
     eng.link(mpfc, mr1, rng.uniform(0.9, 1.0, nm), group=G.MOTOR_DESC)
@@ -483,14 +487,14 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         pt = _sample_no_replace(rng, touch5.ids, 16, 4)
         eng.connect(np.repeat(inh, 4), pt.reshape(-1), rng.uniform(0.1, 0.2, 16 * 4),
                     group=G.MOTOR_NON)
-    eng.set_thr(inh, 0.30, 0.35)
+    eng.set_thr(inh, thr_frac=0.30, soft_frac=0.35)
     deinh = eng.add_block(16, kind="motor_deinh", region="motor", depth=6, inh=True,
                           thr=0.0, soft=1.0,
                           pos=_band_pos(geo, "motor", 16, rng, geo.x_motor_gate + 0.02))
     pd_ = _sample_no_replace(rng, mpfc, 16, 8)
     eng.connect(np.repeat(deinh, 8), pd_.reshape(-1), rng.uniform(0.1, 0.2, 16 * 8),
                 group=G.MOTOR_GRP)
-    eng.set_thr(deinh, 0.55, 0.40)
+    eng.set_thr(deinh, thr_frac=0.55, soft_frac=0.40)
     eng.link(deinh, inh, np.full(16, 1.2, np.float32), group=G.MOTOR_DEINH)
     for m in range(spec.n_muscle):
         f = mforce[m]
@@ -577,7 +581,7 @@ def _reference_stream(brain: "Brain", n: int, seed: int, dog_only: bool = False)
 
 # ---------------------------------------------------------------- 标定
 def _collect_drive(brain: "Brain", ticks: int, rng: np.random.Generator,
-                   warmup: int = 6) -> np.ndarray:
+                   warmup: int = 18) -> np.ndarray:
     """跑 ticks 拍，记录每个神经元的驱动（不更新门槛，只采样）。"""
     eng, sp, enc = brain.engine, brain.spec, brain.encoder
     buf = np.empty((ticks, eng.n), np.float32)
@@ -667,7 +671,7 @@ def _filter_invariant(brain: "Brain", ticks: int | None = None) -> dict:
     stream = _reference_stream(brain, ticks, sp.seed + 77, dog_only=True)
     eng.act[:] = 0.0
     for obs in stream:
-        for _ in range(6):          # 让活动传到最后一层
+        for _ in range(18):         # 让活动传到最后一层（5 层 + 两级中继，深链要 15 拍左右）
             eng.set_input(brain.encoder.encode(obs))
             eng.step()
         a = eng.act_np

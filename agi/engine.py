@@ -53,7 +53,7 @@ KIND_NAME = {v: k for k, v in KIND.items()}
 
 @dataclass
 class EngineConfig:
-    tau: float = 0.03             # 活动时间常数
+    tau: float = 0.025            # 活动时间常数
     dt: float = 0.02              # 一拍 = 50 Hz
     gain_lr: float = 0.002        # 整体阈值调控速度
     gain_range: tuple = (-0.05, 0.05)   # 只许微调（±0.5 会把深层压死）
@@ -89,6 +89,7 @@ class Engine:
         self._backend = "numpy"
         self.input_size = 0          # 输入细胞是编号最前面的一段，每拍直接赋值（不滞后）
         self._gain_tick = 0
+        self._prio = np.zeros(0, np.float32)   # 固定随机优先级：打破 top-k 并列
         # 增量缓存（构建期省掉重复拼接）
         self._pos_flat = np.zeros((0, 3), np.float32)
         self._inh_flat = np.zeros(0, bool)
@@ -363,6 +364,9 @@ class Engine:
         self.selected = np.zeros(self._n, bool)
         self._base = np.zeros(self._n, np.float32)
         self._adapt_np = np.zeros(self._n, np.float32)
+        # 并列优先级：固定、随机、每神经元不同（local3d 的做法）。
+        # 没有它，中间档的 ON/OFF 驱动完全相同，top-k 会按编号永远选同一批。
+        self._prio = self.rng.random(self._n).astype(np.float32) * 1e-4
         self._final = True
         self._build_backend()
         return self
@@ -427,7 +431,8 @@ class Engine:
             self.selected[:] = False
             for s, e, k, mt in self._masks:
                 seg = rn[s:e]
-                idx = np.argpartition(-seg, k - 1)[:k]
+                key = seg + self._prio[s:e]
+                idx = np.argpartition(-key, k - 1)[:k]
                 mt.zero_()
                 mt[idx] = 1.0
                 raw[s:e].mul_(mt)
@@ -442,7 +447,8 @@ class Engine:
             self.selected[:] = False
             for s, e, k, m in self._masks:
                 seg = raw[s:e]
-                idx = np.argpartition(-seg, k - 1)[:k]
+                key = seg + self._prio[s:e]
+                idx = np.argpartition(-key, k - 1)[:k]
                 m[:] = 0.0
                 m[idx] = 1.0
                 seg *= m
