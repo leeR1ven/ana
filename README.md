@@ -80,6 +80,7 @@ docs/MECHANISMS.md    每个机制来自哪个库、参数、为什么
 docs/ROADMAP.md       v0 → 记忆生长 → 运动学习 → 宇树 Go2
 docs/TRAINING.md      训练/测试/模型融合（含老库的经验与我的判断）
 docs/P1_LOG.md        P1 实验数据与判断
+docs/P2_LOG.md        P2（状态→动作蒸馏）第一次尝试与判断
 docs/CONTRACTS.md     模块接口与替换契约
 ```
 

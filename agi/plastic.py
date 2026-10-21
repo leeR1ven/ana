@@ -91,6 +91,30 @@ class PlasticRule:
                     strengthened=strengthened, pruned=pruned,
                     pending=len(self._ns))
 
+    def reinforce(self, engine, src, dst, eta: float | None = None) -> int:
+        """监督式：把给定的 (src→dst) 对按凹增长加强（蒸馏"状态→动作"用）。
+
+        和顺序赫布共用同一套存储与剪枝，只是"谁和谁该连"由外部示范给出。
+        """
+        if not self.cfg.enabled:
+            return 0
+        src = np.unique(np.asarray(src, np.int64))
+        dst = np.unique(np.asarray(dst, np.int64))
+        if not len(src) or not len(dst):
+            return 0
+        # 全连接对：每个源 → 每个目标（超过上限就随机抽样）
+        s = np.repeat(src, len(dst))
+        d = np.tile(dst, len(src))
+        cap = self.cfg.max_pairs * 4
+        if len(s) > cap:
+            pick = self.rng.choice(len(s), cap, replace=False)
+            s, d = s[pick], d[pick]
+        self._apply_pairs(engine, s, d, float(eta if eta is not None
+                                              else self.cfg.eta))
+        if len(self._ns) >= self.cfg.flush_edges:
+            self.flush(engine)
+        return len(src)
+
     def flush(self, engine) -> int:
         """把攒着的新边真正写进引擎（会重建后端张量，所以别每拍都做）。"""
         if not self._ns:
