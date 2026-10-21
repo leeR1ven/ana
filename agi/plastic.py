@@ -49,6 +49,8 @@ class PlasticConfig:
     max_pairs: int = 4096           # 一拍最多处理几对（防止爆）
     full_cross: int = 20000         # 两批单元乘积不超过这个数就全配对学（不抽样）
     min_change: float = 0.3         # 只在"画面明显变了"时学顺序（重叠<70% 才算换场景）
+    settle_overlap: float = 0.0     # >0：只在码"稳定下来之后"学（用稳定码之间的转移）
+    settle_ticks: int = 3           # 连续几拍够稳才算稳定
     flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
@@ -79,9 +81,12 @@ class PlasticRule:
         # 已写入边的索引（按 key 排序）与每条边的共现计数
         self._keys = np.zeros(0, np.int64)
         self._kid = np.zeros(0, np.int64)
+        self._gid = np.zeros(0, np.int64)
         self._cnt_edge = np.zeros(0, np.float32)
         self._cnt_unit = np.zeros(0, np.float32)
         self._prev = np.zeros(0, np.int64)
+        self._settled = None            # 上一次"稳定下来"的码
+        self._stable_run = 0
         self._grown = 0
         self._strengthened = 0
         self.t = 0
@@ -98,7 +103,22 @@ class PlasticRule:
         if len(cur):
             np.add.at(self._cnt_unit, cur, 1.0)
         grown = strengthened = 0
-        if len(prev) and len(cur):
+        if self.cfg.settle_overlap > 0:
+            # 只在码"稳定下来"之后学：用两次稳定码之间的转移，而不是逐拍学抖动。
+            # （实测：同一场景内码要 ~10 拍才稳，逐拍学到的全是瞬态单元）
+            if len(prev) and len(cur):
+                ov = len(np.intersect1d(prev, cur, assume_unique=True)) / len(cur)
+            else:
+                ov = 0.0
+            if ov >= self.cfg.settle_overlap:
+                self._stable_run += 1
+            else:
+                self._stable_run = 0
+            if self._stable_run == self.cfg.settle_ticks:
+                if self._settled is not None and len(self._settled):
+                    grown, strengthened = self._hebb(engine, self._settled, cur)
+                self._settled = cur
+        elif len(prev) and len(cur):
             grown, strengthened = self._hebb(engine, prev, cur)
         self.t += 1
         pruned = 0
@@ -170,10 +190,11 @@ class PlasticRule:
             pos = np.zeros(len(keys), np.int64)
             found = np.zeros(len(keys), bool)
         if found.any():
-            ei = self._kid[pos[found]]
-            w = engine.w[ei]
+            ei = self._kid[pos[found]]                 # 组内下标
+            gi = self._gid[ei]                         # 引擎全局下标
+            w = engine.w[gi]
             inc = eta * np.maximum(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
-            engine.w[ei] += inc.astype(np.float32)
+            engine.w[gi] += inc.astype(np.float32)
             self._cnt_edge[ei] += cnt[found]
             self._strengthened += int(found.sum())
         if (~found).any():
@@ -257,10 +278,11 @@ class PlasticRule:
 
     def _rebuild_index(self, engine) -> None:
         idx = np.flatnonzero(engine.group == self.cfg.group)
+        self._gid = idx                                   # 组内第 j 条边在引擎里的全局下标
         keys = engine.src[idx].astype(np.int64) * engine.n + engine.dst[idx]
         order = np.argsort(keys)
         self._keys = keys[order]
-        self._kid = idx[order]
+        self._kid = order                                 # 组内下标（与 _cnt_edge 对齐）
 
     # ------------------------------------------------------------ 传播权重
     def gates(self, engine, idx=None) -> np.ndarray:
