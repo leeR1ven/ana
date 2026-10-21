@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """P3：让大脑真的驱动身体——"看到哪边就往哪边倾"。
 
 做法：
@@ -85,16 +85,24 @@ def main(argv=None) -> int:
         D.append(eng.drive().numpy()[force_ids])
         K.append(np.rint(teacher_forces(x) * sp.n_force).astype(int))
     A, D, K = np.stack(A), np.stack(D), np.stack(K)
-    W, thr, acc = compile_cells(A, D, K, sp.n_force)
+    # 只用"状态分数"定门槛（D 传 0）：运行时会把运动中继那条路关掉，
+    # 让编译出的连接成为力度细胞的唯一驱动，尺度才对得上。
+    W, thr, acc = compile_cells(A, np.zeros_like(D), K, sp.n_force)
     print(f"编译：{int(np.isfinite(thr).sum())} 个力度细胞，训练集准确率 "
           f"{float(acc[np.isfinite(thr)].mean()):.3f}")
-    install(brain, state_ids, force_ids, W, thr)
+    install(brain, state_ids, force_ids, W, thr, topk=1500)
+    # 关掉"运动相关前额叶 → 力度"这条出生接线，让抄来的策略独立驱动（演示用）
+    m6 = (eng.group == 6) & np.isin(eng.dst, force_ids)
+    eng.w[m6] = 0.0
+    eng.rebuild_backend()
     ctx = Cortex(brain, trace=False)
 
     # ---- 2. 接狗跑：左、中、右三个画面各跑一段，看倾角
     def run_body(x, ticks, use_brain=True):
         body = Go2Body(posture_offset=args.offset)
         body.reset()
+        eng.act[:] = 0.0
+        eng.reset_adaptation()            # 每个画面从零起，和编译时一致
         rolls = []
         for _ in range(ticks):
             obs = cue_obs(sp, x)
