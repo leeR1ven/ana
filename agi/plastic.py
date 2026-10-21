@@ -48,7 +48,8 @@ class PlasticConfig:
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
     prop_gain: float = 1.0          # 传播权重的总增益（混合驱动时要抬，见 sync 注释）
-    in_floor: float = 1.0           # 出边和下限（防除零）
+    in_floor: float = 8.0           # 入边和的"免罚下限"：低于它不压，高于它按比例压枢纽
+    out_floor: float = 1e-6         # 出边和下限（防除零）
 
 
 class PlasticRule:
@@ -267,9 +268,13 @@ class PlasticRule:
         idx = np.flatnonzero(m)
         w = np.maximum(engine.w[idx], 0.0)
         out = np.bincount(engine.src[idx], weights=w, minlength=engine.n)
+        inn = np.bincount(engine.dst[idx], weights=w, minlength=engine.n)
         ws = w ** cfg.sharpen
-        denom = np.maximum(out[engine.src[idx]], cfg.in_floor)
-        engine.wp[idx] = (ws / denom * cfg.prop_gain).astype(np.float32)
+        # 扇出归一：一个源把总输出摊到它的出边上
+        denom = np.maximum(out[engine.src[idx]], cfg.out_floor)
+        # 枢纽抑制：入边和超过下限的目标按比例摊薄（"什么都能连"的单元不该广播）
+        hub = np.maximum(inn[engine.dst[idx]], cfg.in_floor) / cfg.in_floor
+        engine.wp[idx] = (ws / denom / hub * cfg.prop_gain).astype(np.float32)
 
     def count(self, engine) -> int:
         return int((engine.group == self.cfg.group).sum())
