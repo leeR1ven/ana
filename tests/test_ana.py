@@ -254,10 +254,10 @@ def test_pmi_gate():
     # 稀有对 0→1（各自只出现 10 次，一起出现 10 次）
     # 万金油 4→5（各自出现 80 次，也只一起出现 10 次）
     rule._cnt_unit = np.array([10, 10, 0, 0, 80, 80], np.float32)
-    rule._cnt_pair = {0 * 6 + 1: 10.0, 4 * 6 + 5: 10.0}
     rule.t = 100
     eng.add_edges(np.array([0, 4], np.int32), np.array([1, 5], np.int32),
                   np.array([0.5, 0.5], np.float32), group=40)
+    rule._cnt_edge = np.array([10.0, 10.0], np.float32)   # 与边对齐的共现计数
     g = rule.gates(eng)
     assert g[0] > g[1], f"稀有搭档应更被保留：{g}"
     assert g[0] > 0.5 and g[1] < 0.5

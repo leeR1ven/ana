@@ -9,18 +9,23 @@
   · v0 前额叶内部边 = 0（只有出生接线）；
   · 训练/测试阶段喂真实序列，调用 `PlasticRule.apply()` 让连接长出来。
 
-**规则是"有先后的赫布"，不是"同时活跃就加强"**（这一条被纠正过）：
+**规则是"有先后的赫布"，不是"同时活跃就加强"**：
 
     上一拍亮 A、这一拍亮 B   →   A→B 加强        （时间顺序决定方向）
     这一拍刚亮的 B、C 之间   →   互相加强（弱）   （同一时刻的共同出现）
     一直亮 / 一直灭的不产生边                    （不携带顺序信息）
+    只有"刚变化的"参与：上一拍亮、这一拍灭的 → 这一拍刚亮的
 
 其余规则来自字神经元网络的实测（见 docs/MECHANISMS.md）：
 
 1. **凹形生长**：Δw = η·a_i·a_j·(1 − w/w_max)^pow —— 越涨越难涨；
 2. **稀疏**：每个单元只留最强的 top-k 条出边；
 3. **整体降权**：每 N 拍 ×decay，让"从不用"的连接消失；
-4. **连接强度 ≠ 传播强度**：Ŵ = W^1.5 / 出边和 / max(入边和, 下限)。
+4. **两层权重**：连接强度 W ≠ 传播权重 Ŵ（扇出归一 + 枢纽抑制 + 锐化）；
+5. **特异性闸门（PMI）**：压掉"什么都能连"的万金油连接。
+
+实现说明：为了能在"每拍上万对"的规模上跑，这里全部向量化——
+存在边用**有序 key 表 + 二分查找**，共现计数用**与边对齐的数组**，不逐对做字典查询。
 """
 from __future__ import annotations
 
@@ -65,25 +70,24 @@ class PlasticRule:
     def __init__(self, cfg: PlasticConfig | None = None, seed: int = 3):
         self.cfg = cfg or PlasticConfig()
         self.rng = np.random.default_rng(seed)
-        self._idx: dict[int, int] = {}     # key = src*n+dst → 已写入引擎的边下标
-        self._pending: dict[int, int] = {}  # key → 待写入缓冲区下标
-        self._ns: list[int] = []
-        self._nd: list[int] = []
-        self._nw: list[float] = []
+        # 待写入缓冲区（每拍攒着，flush 时批量写进引擎）
+        self._ns: list[np.ndarray] = []
+        self._nd: list[np.ndarray] = []
+        self._nw: list[np.ndarray] = []
+        self._nc: list[np.ndarray] = []
+        self._pending_n = 0
+        # 已写入边的索引（按 key 排序）与每条边的共现计数
+        self._keys = np.zeros(0, np.int64)
+        self._kid = np.zeros(0, np.int64)
+        self._cnt_edge = np.zeros(0, np.float32)
+        self._cnt_unit = np.zeros(0, np.float32)
         self._prev = np.zeros(0, np.int64)
-        self._cnt_unit = np.zeros(0, np.float32)      # 每个单元被激活的次数
-        self._cnt_pair: dict[int, float] = {}         # 每对边的共现次数
         self._grown = 0
         self._strengthened = 0
         self.t = 0
 
     # ------------------------------------------------------------ 主入口
     def apply(self, engine, cur_active, prev_active=None) -> dict:
-        """一拍结束调用。
-
-        cur_active  : 这一拍活跃的前额叶编号
-        prev_active : 上一拍活跃的编号（不给就用内部记住的上一拍）
-        """
         if not self.cfg.enabled:
             return dict(edges=0, grown=0, strengthened=0, pruned=0)
         cur = np.unique(np.asarray(cur_active, np.int64))
@@ -98,73 +102,22 @@ class PlasticRule:
             grown, strengthened = self._hebb(engine, prev, cur)
         self.t += 1
         pruned = 0
-        due = (self._ns and (len(self._ns) >= self.cfg.flush_edges
-                             or self.t % max(1, self.cfg.flush_every) == 0))
-        if due:
+        if self._pending_n and (self._pending_n >= self.cfg.flush_edges
+                                or self.t % max(1, self.cfg.flush_every) == 0):
             pruned = self.flush(engine)
         if self.cfg.pmi_decay_every and self.t % self.cfg.pmi_decay_every == 0:
             self._cnt_unit *= self.cfg.pmi_decay
-            for k in list(self._cnt_pair):
-                v = self._cnt_pair[k] * self.cfg.pmi_decay
-                if v < 1e-3:
-                    del self._cnt_pair[k]
-                else:
-                    self._cnt_pair[k] = v
+            self._cnt_edge *= self.cfg.pmi_decay
         self._prev = cur
         return dict(edges=self.count(engine), grown=grown,
                     strengthened=strengthened, pruned=pruned,
-                    pending=len(self._ns))
-
-    def reinforce(self, engine, src, dst, eta: float | None = None) -> int:
-        """监督式：把给定的 (src→dst) 对按凹增长加强（蒸馏"状态→动作"用）。
-
-        和顺序赫布共用同一套存储与剪枝，只是"谁和谁该连"由外部示范给出。
-        """
-        if not self.cfg.enabled:
-            return 0
-        src = np.unique(np.asarray(src, np.int64))
-        dst = np.unique(np.asarray(dst, np.int64))
-        if not len(src) or not len(dst):
-            return 0
-        # 全连接对：每个源 → 每个目标（超过上限就随机抽样）
-        s = np.repeat(src, len(dst))
-        d = np.tile(dst, len(src))
-        cap = self.cfg.max_pairs * 4
-        if len(s) > cap:
-            pick = self.rng.choice(len(s), cap, replace=False)
-            s, d = s[pick], d[pick]
-        self._apply_pairs(engine, s, d, float(eta if eta is not None
-                                              else self.cfg.eta))
-        if len(self._ns) >= self.cfg.flush_edges:
-            self.flush(engine)
-        return len(src)
-
-    def flush(self, engine) -> int:
-        """把攒着的新边真正写进引擎（会重建后端张量，所以别每拍都做）。"""
-        if not self._ns:
-            return 0
-        engine.add_edges(np.asarray(self._ns, np.int32),
-                         np.asarray(self._nd, np.int32),
-                         np.asarray(self._nw, np.float32), group=self.cfg.group)
-        base = len(engine.w) - len(self._ns)
-        for j, k in enumerate(self._pending):
-            self._idx[k] = base + j
-        self._ns, self._nd, self._nw, self._pending = [], [], [], {}
-        self._prune_out(engine)
-        pruned = 0
-        if self.cfg.decay_every and self.t % self.cfg.decay_every == 0:
-            self._decay(engine)
-            pruned = self._prune(engine)
-        self.sync(engine)
-        engine.rebuild_backend()
-        return pruned
+                    pending=self._pending_n)
 
     # ------------------------------------------------------------ 赫布
     def _hebb(self, engine, prev: np.ndarray, cur: np.ndarray) -> tuple[int, int]:
         cfg = self.cfg
         self._grown = self._strengthened = 0
         # 同一画面持续时不学：那不是"先 A 后 B"，只是"还停在 A"。
-        # 不排除它，自我关联会淹没真正的转移（实测 7/8 的拍都是这种情况）。
         if len(cur):
             overlap = len(np.intersect1d(prev, cur, assume_unique=True)) / len(cur)
             if overlap > 1.0 - cfg.min_change:
@@ -175,11 +128,8 @@ class PlasticRule:
         mask_cur = np.zeros(n, bool)
         mask_cur[cur] = True
         newly = cur[~mask_prev[cur]]        # 这一拍"刚亮"的
-        dropped = prev[~mask_cur[prev]]     # 上一拍亮、这一拍已灭的（"先亮的"）
-        # 1) 顺序：上一拍亮 → 这一拍亮
-        # 只有"刚变化的"参与（链式库 plastic2 的规则）：
-        #   上一拍亮、这一拍灭的  →  这一拍刚亮的
-        # 不这样做，A 的边会大量指回 A 自己（实测 56%），转移被淹没。
+        dropped = prev[~mask_cur[prev]]     # 上一拍亮、这一拍灭的（"先亮的"）
+        # 只有"刚变化的"参与（链式库 plastic2 的规则）。不这样做，边会大量指回自己。
         pre = dropped if len(dropped) else prev
         post = newly if len(newly) else cur
         n_all = len(pre) * len(post)
@@ -194,7 +144,7 @@ class PlasticRule:
             jj = post[self.rng.integers(0, len(post), n_pair)]
             keep = ii != jj
             self._apply_pairs(engine, ii[keep], jj[keep], cfg.eta)
-        # 2) 同拍刚亮：互相加强（双向，弱）
+        # 同拍刚亮：互相加强（双向、弱）
         if len(newly) > 1:
             k = min(cfg.max_pairs // 2, len(newly) * max(1, len(newly) - 1) // 2)
             if k > 0:
@@ -205,41 +155,66 @@ class PlasticRule:
         return self._grown, self._strengthened
 
     def _apply_pairs(self, engine, src: np.ndarray, dst: np.ndarray, eta: float) -> None:
-        """处理采样到的 (src→dst) 对：已写入的就地加强，新的先攒在缓冲区。"""
+        """向量化：已写入的就地加强，新的先攒着。"""
         if not len(src):
             return
         n = engine.n
-        keys = np.unique(src.astype(np.int64) * n + dst.astype(np.int64))
-        s = (keys // n).tolist()
-        d = (keys % n).tolist()
-        old_i, old_inc = [], []
-        grown = 0
-        for a, b in zip(s, d):
-            k = a * n + b
-            self._cnt_pair[k] = self._cnt_pair.get(k, 0.0) + 1.0
-            i = self._idx.get(k)
-            if i is not None:
-                w = engine.w[i]
-                inc = eta * max(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
-                if inc > 0:
-                    old_i.append(i)
-                    old_inc.append(inc)
-                continue
-            j = self._pending.get(k)
-            if j is not None:
-                w = self._nw[j]
-                inc = eta * max(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
-                self._nw[j] = min(self.cfg.w_max, w + inc)
-                continue
-            self._pending[k] = len(self._ns)
-            self._ns.append(a)
-            self._nd.append(b)
-            self._nw.append(float(eta))
-            grown += 1
-        if old_i:
-            engine.w[old_i] += np.asarray(old_inc, np.float32)
-        self._grown += grown
-        self._strengthened += len(old_i)
+        keys, cnt = np.unique(src.astype(np.int64) * n + dst.astype(np.int64),
+                              return_counts=True)
+        # 已存在的边：二分查找
+        if len(self._keys):
+            pos = np.searchsorted(self._keys, keys)
+            pos = np.minimum(pos, len(self._keys) - 1)
+            found = self._keys[pos] == keys
+        else:
+            pos = np.zeros(len(keys), np.int64)
+            found = np.zeros(len(keys), bool)
+        if found.any():
+            ei = self._kid[pos[found]]
+            w = engine.w[ei]
+            inc = eta * np.maximum(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
+            engine.w[ei] += inc.astype(np.float32)
+            self._cnt_edge[ei] += cnt[found]
+            self._strengthened += int(found.sum())
+        if (~found).any():
+            nk = keys[~found]
+            self._ns.append((nk // n).astype(np.int32))
+            self._nd.append((nk % n).astype(np.int32))
+            self._nw.append(np.full(len(nk), eta, np.float32))
+            self._nc.append(cnt[~found].astype(np.float32))
+            self._pending_n += len(nk)
+            self._grown += int((~found).sum())
+
+    # ------------------------------------------------------------ 写入
+    def flush(self, engine) -> int:
+        """把攒着的新边批量写进引擎（会重建后端张量，所以别每拍都做）。"""
+        if not self._pending_n:
+            return 0
+        n = engine.n
+        s = np.concatenate(self._ns)
+        d = np.concatenate(self._nd)
+        w = np.concatenate(self._nw)
+        c = np.concatenate(self._nc)
+        keys = s.astype(np.int64) * n + d.astype(np.int64)
+        uniq, inv = np.unique(keys, return_inverse=True)
+        ww = np.zeros(len(uniq), np.float32)
+        np.maximum.at(ww, inv, w)                   # 同一对重复出现时取最大权重
+        cc = np.zeros(len(uniq), np.float32)
+        np.add.at(cc, inv, c)
+        engine.add_edges((uniq // n).astype(np.int32), (uniq % n).astype(np.int32),
+                         ww, group=self.cfg.group)
+        self._cnt_edge = np.concatenate([self._cnt_edge, cc])
+        self._ns, self._nd, self._nw, self._nc = [], [], [], []
+        self._pending_n = 0
+        self._rebuild_index(engine)
+        self._prune_out(engine)
+        pruned = 0
+        if self.cfg.decay_every and self.t % self.cfg.decay_every == 0:
+            self._decay(engine)
+            pruned = self._prune(engine)
+        self.sync(engine)
+        engine.rebuild_backend()
+        return pruned
 
     # ------------------------------------------------------------ 剪枝/降权
     def _prune_out(self, engine) -> None:
@@ -254,76 +229,75 @@ class PlasticRule:
         starts = np.r_[0, np.flatnonzero(np.diff(src_s)) + 1]
         counts = np.diff(np.r_[starts, len(src_s)])
         rank = np.arange(len(src_s)) - np.repeat(starts, counts)
-        drop = idx_s[rank >= cfg.topk_out]
-        if len(drop):
-            engine.drop_edges(np.isin(np.arange(len(engine.src)), drop))
-            self._reindex(engine)
+        drop = rank >= cfg.topk_out
+        if drop.any():
+            keep_local = ~drop[np.argsort(order)]
+            self._drop(engine, idx, keep_local)
 
     def _prune(self, engine) -> int:
         idx = np.flatnonzero(engine.group == self.cfg.group)
         if not len(idx):
             return 0
-        weak = idx[engine.w[idx] < self.cfg.min_w]
-        if len(weak):
-            engine.drop_edges(np.isin(np.arange(len(engine.src)), weak))
-            self._reindex(engine)
-        return int(len(weak))
+        keep_local = engine.w[idx] >= self.cfg.min_w
+        if (~keep_local).any():
+            self._drop(engine, idx, keep_local)
+        return int((~keep_local).sum())
+
+    def _drop(self, engine, idx: np.ndarray, keep_local: np.ndarray) -> None:
+        mask = np.zeros(len(engine.src), bool)
+        mask[idx[~keep_local]] = True
+        engine.drop_edges(mask)
+        self._cnt_edge = self._cnt_edge[keep_local]
+        self._rebuild_index(engine)
 
     def _decay(self, engine) -> None:
         m = engine.group == self.cfg.group
         if m.any():
             engine.w[m] *= self.cfg.decay
 
-    def _reindex(self, engine) -> None:
+    def _rebuild_index(self, engine) -> None:
         idx = np.flatnonzero(engine.group == self.cfg.group)
-        n = engine.n
-        self._idx = {int(engine.src[i]) * n + int(engine.dst[i]): int(i) for i in idx}
+        keys = engine.src[idx].astype(np.int64) * engine.n + engine.dst[idx]
+        order = np.argsort(keys)
+        self._keys = keys[order]
+        self._kid = idx[order]
 
     # ------------------------------------------------------------ 传播权重
-    def sync(self, engine) -> None:
-        """连接强度 W → 传播权重 Ŵ。
-
-        这里和字神经元网络有一处**有意的偏差**：原库除"出边和"之后再除"入边和"，
-        因为那里的 W 是唯一驱动。我们这里前额叶还有一条 1:1 的感觉线，
-        两份归一叠起来会把联想压到 1%（实测 0.0065/边，占驱动 1.17%），
-        等于白学。所以只保留扇出归一（一个源把总输出摊到它的 top-k 上），
-        再做 W^sharpen 锐化，最后乘 prop_gain。
-        """
-        cfg = self.cfg
-        m = engine.group == cfg.group
-        if not m.any():
-            return
-        idx = np.flatnonzero(m)
-        w = np.maximum(engine.w[idx], 0.0)
-        out = np.bincount(engine.src[idx], weights=w, minlength=engine.n)
-        inn = np.bincount(engine.dst[idx], weights=w, minlength=engine.n)
-        ws = w ** cfg.sharpen
-        # 扇出归一：一个源把总输出摊到它的出边上
-        denom = np.maximum(out[engine.src[idx]], cfg.out_floor)
-        # 枢纽抑制：入边和超过下限的目标按比例摊薄（"什么都能连"的单元不该广播）
-        hub = np.maximum(inn[engine.dst[idx]], cfg.in_floor) / cfg.in_floor
-        wp = ws / denom / hub * cfg.prop_gain
-        # 特异性闸门（PMI）：只和"总是跟我一起出现"的伙伴保留强连接。
-        # 万金油单元（跟谁都能一起亮）的 PMI 低，被压到 floor。
-        if cfg.pmi_gate and self._cnt_unit.size == engine.n and self.t > 5:
-            wp = wp * self.gates(engine, idx)
-        engine.wp[idx] = wp.astype(np.float32)
-
     def gates(self, engine, idx=None) -> np.ndarray:
         """每条边的特异性闸门（0.12..1）。万金油连接的 PMI 低，被压到下限。"""
         cfg = self.cfg
         if idx is None:
             idx = np.flatnonzero(engine.group == cfg.group)
-        keys = engine.src[idx].astype(np.int64) * engine.n + engine.dst[idx]
-        cab = np.fromiter((self._cnt_pair.get(k, 0.0) for k in keys),
-                          dtype=np.float32, count=len(keys))
         T = max(1.0, float(self.t))
+        cab = self._cnt_edge if len(self._cnt_edge) == len(idx) else np.zeros(len(idx), np.float32)
         pa = self._cnt_unit[engine.src[idx]] / T
         pb = self._cnt_unit[engine.dst[idx]] / T
         eps = 1e-6
         pmi = np.log((cab / T + eps) / ((pa + eps) * (pb + eps)))
         return (cfg.pmi_floor + (1.0 - cfg.pmi_floor) / (
             1.0 + np.exp(-cfg.pmi_steep * (pmi - cfg.pmi_offset)))).astype(np.float32)
+
+    def sync(self, engine) -> None:
+        """连接强度 W → 传播权重 Ŵ。
+
+        和字神经元网络有一处**有意的偏差**：原库同时除以出边和与入边和，
+        因为那里的 W 是唯一驱动。我们这里前额叶还有一条 1:1 的感觉线，
+        两份归一叠起来会把联想压到 1%，等于白学。所以只保留扇出归一 + 枢纽抑制。
+        """
+        cfg = self.cfg
+        idx = np.flatnonzero(engine.group == cfg.group)
+        if not len(idx):
+            return
+        w = np.maximum(engine.w[idx], 0.0)
+        out = np.bincount(engine.src[idx], weights=w, minlength=engine.n)
+        inn = np.bincount(engine.dst[idx], weights=w, minlength=engine.n)
+        ws = w ** cfg.sharpen
+        denom = np.maximum(out[engine.src[idx]], cfg.out_floor)
+        hub = np.maximum(inn[engine.dst[idx]], cfg.in_floor) / cfg.in_floor
+        wp = ws / denom / hub * cfg.prop_gain
+        if cfg.pmi_gate and self._cnt_unit.size == engine.n and self.t > 5:
+            wp = wp * self.gates(engine, idx)
+        engine.wp[idx] = wp.astype(np.float32)
 
     def count(self, engine) -> int:
         return int((engine.group == self.cfg.group).sum())
