@@ -420,29 +420,20 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                                rng.uniform(*geo.bands[L.region],
                                                            max(1, size // 2)),
                                                rng.random(max(1, size // 2))], axis=1))
-            # 回程闸门：只有这一拍最强的几条前额叶信号能开回程（激活 > 抑制），
-            # 而且随思考焦点移动——闸门用 top-k 选最强，不是"大面积活跃才开"。
-            ng = max(2, min(spec.return_gate, len(pfc)))
-            gate = eng.add_block(ng, kind="ret_relay", region=L.region, depth=L.depth,
-                                 thr=0.0, soft=1.0,
-                                 pos=band_positions(geo, L.region, ng, rng, geo.x_return + 0.04))
-            pickg = _sample_no_replace(rng, pfc, ng, min(8, len(pfc)))
-            eng.connect(np.repeat(gate, pickg.shape[1]), pickg.reshape(-1),
-                        rng.uniform(0.10, 0.20, gate.size * pickg.shape[1]),
-                        group=G.RET_L1)
-            eng.set_thr(gate, thr_frac=0.5, soft_frac=0.5)
-            eng.register_topk(gate, max(1, min(spec.return_gate_k, ng)))
-            # 闸门 → 第一级 / 抑制细胞（抑制细胞仍看前额叶整体）
-            pick1 = _sample_no_replace(rng, gate, nr1, 2)
-            eng.connect(np.repeat(ret1, 2), pick1.reshape(-1),
-                        rng.uniform(0.3, 0.5, nr1 * 2), group=G.RET_L1)
-            ids["ret_gate"] = ids.get("ret_gate", {})
-            ids["ret_gate"][(L.region, L.depth)] = gate
-            picki = _sample_no_replace(rng, pfc, 1, min(20, len(pfc)))
-            eng.connect(np.repeat(ret_inh, len(picki[0])), picki.reshape(-1),
-                        rng.uniform(0.15, 0.25, len(picki[0])), group=G.RET_FROM_PFC)
+            # 回程由"抑制神经元规则"自己选：抑制细胞广撒网地读前额叶整体活动，
+            # 整体越活跃压得越狠；只有局部那条特别强的回程线压不住、能过线。
+            # 思考焦点一换，上一帧那条不再是最强，就被整体抑制压回去。
+            pick1 = _sample_no_replace(rng, pfc, nr1, 8)
+            eng.connect(np.repeat(ret1, 8), pick1.reshape(-1),
+                        rng.uniform(0.20, 0.30, nr1 * 8), group=G.RET_L1)
+            # 抑制细胞读"一大片"前额叶（广撒网），所以它的活动≈整体活跃程度
+            n_broad = min(96, len(pfc))
+            picki = _sample_no_replace(rng, pfc, 1, n_broad)
+            eng.connect(np.repeat(ret_inh, n_broad), picki.reshape(-1),
+                        rng.uniform(0.05, 0.08, n_broad), group=G.RET_FROM_PFC)
+            eng.set_thr(ret_inh, thr_frac=0.55, soft_frac=0.45)
             eng.connect(ret1, np.full(nr1, ret_inh[0], np.int32),
-                        np.full(nr1, 1.2, np.float32), group=G.RET_INH)
+                        np.full(nr1, 1.6, np.float32), group=G.RET_INH)
             pick2 = _sample_no_replace(rng, ret1, len(ret2), 4)
             eng.connect(np.repeat(ret2, 4), pick2.reshape(-1),
                         rng.uniform(0.15, 0.25, len(ret2) * 4), group=G.RET_L1)
@@ -453,7 +444,6 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                         group=G.RET_L2)
             eng.set_thr(ret1, thr_frac=0.30, soft_frac=0.35)
             eng.set_thr(ret2, thr_frac=0.30, soft_frac=0.35)
-            eng.set_thr(ret_inh, thr_frac=0.45, soft_frac=0.45)
             ids["ret"][(L.region, L.depth)] = (ret_inh, ret1, ret2)
 
     # ---------------------------------------------------------- 4. 运动区

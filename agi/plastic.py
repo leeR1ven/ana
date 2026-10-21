@@ -42,6 +42,7 @@ class PlasticConfig:
     decay_every: int = 2000         # 每多少拍整体降权一次
     decay: float = 0.995
     max_pairs: int = 4096           # 一拍最多处理几对（防止爆）
+    full_cross: int = 20000         # 两批单元乘积不超过这个数就全配对学（不抽样）
     min_change: float = 0.3         # 只在"画面明显变了"时学顺序（重叠<70% 才算换场景）
     flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
@@ -151,8 +152,16 @@ class PlasticRule:
         mask_prev[prev] = True
         newly = cur[~mask_prev[cur]]        # 这一拍"刚亮"的
         # 1) 顺序：上一拍亮 → 这一拍亮
-        n_pair = min(cfg.max_pairs, len(prev) * len(cur))
-        if n_pair > 0:
+        n_all = len(prev) * len(cur)
+        if n_all <= cfg.full_cross:
+            # 全配对：换画面的那一刻，把"上一批 × 这一批"全部学一遍。
+            # 抽样会让真转移一万次里也抽不到几次（上一轮的教训）。
+            ii = np.repeat(prev, len(cur))
+            jj = np.tile(cur, len(prev))
+            keep = ii != jj
+            self._apply_pairs(engine, ii[keep], jj[keep], cfg.eta)
+        else:
+            n_pair = min(cfg.max_pairs, n_all)
             ii = prev[self.rng.integers(0, len(prev), n_pair)]
             jj = cur[self.rng.integers(0, len(cur), n_pair)]
             keep = ii != jj
