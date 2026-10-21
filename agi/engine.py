@@ -97,6 +97,12 @@ class Engine:
         self.act = np.zeros(0, np.float32)
         self.ext = np.zeros(0, np.float32)
         self.selected = np.zeros(0, bool)     # 本拍被 top-k 选中的神经元
+        # 自适应（习惯化）：驱动减掉自己的滑动平均，再比门槛/top-k
+        self.adapt_rate = 0.0
+        self._base = np.zeros(0, np.float32)
+        self._adapt_np = np.zeros(0, np.float32)
+        self._base_t = None
+        self._adapt_t = None
         self._act_t = self._ext_t = self._tbuf = None
         self._src_t = self._dst_t = self._wp_t = self._sgn_t = None
         self._thr_t = self._soft_t = self._counted_t = None
@@ -211,6 +217,19 @@ class Engine:
         self.sgn = self.sgn[keep]
         self.group = self.group[keep]
         return n
+
+    def set_adaptation(self, ids, rate: float) -> None:
+        """给这些神经元开自适应（每拍减掉自己的滑动平均驱动）。"""
+        ids = np.asarray(ids, int)
+        self.adapt_rate = float(rate)
+        self._adapt_np[ids] = float(rate)
+        if self._adapt_t is not None:
+            self._adapt_t.copy_(torch.from_numpy(self._adapt_np))
+
+    def reset_adaptation(self) -> None:
+        self._base[:] = 0.0
+        if self._base_t is not None:
+            self._base_t.zero_()
 
     def register_topk(self, ids, k: int) -> None:
         ids = np.asarray(ids, np.int64)
@@ -342,6 +361,8 @@ class Engine:
         self.act = np.zeros(self._n, np.float32)
         self.ext = np.zeros(self._n, np.float32)
         self.selected = np.zeros(self._n, bool)
+        self._base = np.zeros(self._n, np.float32)
+        self._adapt_np = np.zeros(self._n, np.float32)
         self._final = True
         self._build_backend()
         return self
@@ -360,6 +381,8 @@ class Engine:
             self._thr_t = torch.as_tensor(self._thr_f)
             self._soft_t = torch.as_tensor(self._soft_f)
             self._counted_t = torch.from_numpy(self._counted_f)
+            self._base_t = torch.from_numpy(self._base)
+            self._adapt_t = torch.from_numpy(self._adapt_np)
             self._tbuf = torch.zeros(self._n, dtype=torch.float32)
             for s, e, k in self._topk:
                 m = np.zeros(e - s, np.float32)
@@ -379,10 +402,17 @@ class Engine:
             b.zero_()
             b.index_add_(0, self._dst_t, self._wp_t * self._sgn_t * self._act_t[self._src_t])
             b.add_(self._ext_t)
+            if self.adapt_rate > 0.0:
+                b.sub_(self._base_t)                 # 只保留"相对自己的变化"
+                self._base_t.add_(b * self._adapt_t)  # base += rate·(raw-base)
             return b
         d = np.bincount(self.dst, weights=self.wp * self.sgn * self.act[self.src],
                         minlength=self._n).astype(np.float32)
         d += self.ext
+        if self.adapt_rate > 0.0:
+            raw = d.copy()
+            d -= self._base
+            self._base += self._adapt_np * (raw - self._base)
         return d
 
     def step(self) -> None:

@@ -534,6 +534,15 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         if verbose:
             print(f"[ANA] 标定 {calib_ticks} 拍：前额叶门槛={cal['thr_median']:.4f}"
                   f"（中位）  预计活跃≈{cal['pfc_frac']*100:.1f}%")
+    if spec.pfc_adapt > 0:
+        # 自适应在标定之后开：标定要看原始驱动，不能看"减掉基线"之后的。
+        kept_ids = []
+        for (r, d), g in pfc_groups.items():
+            bad = brain.filtered.get(f"{r}.L{d}") if brain.filtered else None
+            kept_ids.append(g if bad is None else g[~bad])
+        if kept_ids:
+            eng.set_adaptation(np.concatenate(kept_ids), spec.pfc_adapt)
+            eng.reset_adaptation()
     if verbose:
         s = brain.summary()
         print(f"[ANA] 神经元 {s['neurons']:,}  边 {s['edges']:,}  "

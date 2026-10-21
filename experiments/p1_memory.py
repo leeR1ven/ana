@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """P1 基线：打开"顺序赫布"，看前额叶内部连接长不长得出来、有没有用。
 
 用法：
@@ -67,13 +67,16 @@ def scripted_forces(t: int, n: int) -> np.ndarray:
 
 # ---------------------------------------------------------------- 训练
 def train(ticks: int, preset: str, seed: int = 0, verbose: bool = True,
-          pfc_topk: float = 0.0, protocol: str = "stim"):
-    sp = build_spec(preset, pfc_topk=pfc_topk)
+          pfc_topk: float = 0.0, protocol: str = "stim", pfc_adapt: float = 0.0,
+          net_seed: int = 0):
+    sp = build_spec(preset, pfc_topk=pfc_topk, pfc_adapt=pfc_adapt,
+                    seed=7 + net_seed)
     b = build(sp, verbose=False)
     rule = PlasticRule(PlasticConfig(enabled=True, eta=0.10, eta_sim=0.02,
                                      topk_out=8, max_pairs=2048,
                                      decay_every=1000, decay=0.995,
-                                     flush_every=100, flush_edges=20000))
+                                     flush_every=100, flush_edges=20000),
+                       seed=3 + net_seed)
     ctx = Cortex(b, plastic=rule)
     dog = VirtualDog(sp, seed=seed)
     cycle = ["left", "mid", "right", "mid"]
@@ -154,22 +157,28 @@ def main(argv=None) -> int:
     p.add_argument("--ticks", type=int, default=600)
     p.add_argument("--preset", default="xl")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--net-seed", type=int, default=0, help="网络接线/采样的种子")
     p.add_argument("--pfc-topk", type=float, default=0.02,
                    help="前额叶动态抑制：每拍只留最强的这个比例（0=关）")
     p.add_argument("--protocol", default="stim", choices=("stim", "dog"),
                    help="训练流：stim=固定刺激序列（可测召回）；dog=身体乱转")
+    p.add_argument("--pfc-adapt", type=float, default=0.01,
+                   help="前额叶自适应速率（0=关）")
     args = p.parse_args(argv)
 
     print(f"[P1] 训练：{args.preset}，{args.ticks} 拍，顺序赫布开启，"
-          f"前额叶动态抑制 {args.pfc_topk:.0%}")
-    b, ctx, log = train(args.ticks, args.preset, args.seed, pfc_topk=args.pfc_topk,
-                        protocol=args.protocol)
+          f"前额叶动态抑制 {args.pfc_topk:.0%}，自适应 {args.pfc_adapt}")
+    b, ctx, log = train(args.ticks, args.preset, args.seed,
+                        pfc_topk=args.pfc_topk, protocol=args.protocol,
+                        pfc_adapt=args.pfc_adapt, net_seed=args.net_seed)
     m = b.engine.group == G.PL_PFC
     print(f"\n[P1] 结果：联想边 {int(m.sum())} 条，"
           f"覆盖前额叶 {len(np.unique(b.engine.src[m])) if m.any() else 0} 个源单元")
 
     print("\n[P1] 对照：同一网络，plastic 关闭")
-    b0 = build(build_spec(args.preset, pfc_topk=args.pfc_topk), verbose=False)
+    b0 = build(build_spec(args.preset, pfc_topk=args.pfc_topk,
+                          pfc_adapt=args.pfc_adapt,
+                          seed=7 + args.net_seed), verbose=False)
     d_on = context_test(b)
     d_off = context_test(b0)
     print(f"  上下文依赖（同帧不同前序的码距离）：开学习 {d_on:.3f}   关学习 {d_off:.3f}")

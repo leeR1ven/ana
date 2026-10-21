@@ -224,6 +224,23 @@ def test_plastic_temporal_order():
     assert np.all(eng.w[m] > 0)
 
 
+def test_adaptation_habituates():
+    eng = Engine(EngineConfig(target_active=0))
+    a = eng.add_block(2, kind="pfc", thr=0.0, soft=1.0)
+    eng.finalize()
+    eng.set_adaptation(a, 0.5)
+    eng.set_external(a, np.array([1.0, 0.0], np.float32))
+    acts = []
+    for _ in range(8):
+        eng.step()
+        acts.append(float(eng.act_np[a[0]]))
+    assert acts[0] > acts[-1], f"持续输入下响应应该衰减：{acts}"
+    # 换一个输入：另一个单元应当有响应（不是整体压死）
+    eng.set_external(a, np.array([0.0, 1.0], np.float32))
+    eng.step()
+    assert float(eng.act_np[a[1]]) > 0.1
+
+
 def test_plastic_disabled_is_noop():
     b = tiny()
     rule = PlasticRule(PlasticConfig(enabled=False))
