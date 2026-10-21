@@ -161,8 +161,11 @@ def test_architecture_two_modes():
     b = build(sp, verbose=False)
     assert not check(b)
     region_pfc = np.concatenate(list(b.pfc_groups.values()))
+    masks = [b.filtered.get(f"{r}.L{d}", np.zeros(len(g), bool))
+             for (r, d), g in b.pfc_groups.items()]
+    fdrop = np.concatenate(masks) if masks else np.zeros(len(region_pfc), bool)
     indeg = np.bincount(b.engine.dst, minlength=b.engine.n)
-    assert np.all(indeg[region_pfc] == 6)
+    assert np.all(indeg[region_pfc[~fdrop]] == 6)
 
 
 def test_behavior_loop():
