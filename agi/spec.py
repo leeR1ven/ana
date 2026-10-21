@@ -204,9 +204,10 @@ class ScalePreset:
     audio_frames: int = 4
 
     def spec(self, **kw) -> Spec:
-        return replace(Spec(), px=self.px, n_level=self.n_level,
-                       pfc_ratio=self.pfc_ratio, audio_bands=self.audio_bands,
-                       audio_frames=self.audio_frames, **kw)
+        d = dict(px=self.px, n_level=self.n_level, pfc_ratio=self.pfc_ratio,
+                 audio_bands=self.audio_bands, audio_frames=self.audio_frames)
+        d.update(kw)                      # 允许覆盖预设里的任何字段
+        return replace(Spec(), **d)
 
 
 # 实测（i5-12600KF / torch CPU / 2 小步每拍）：32×32 → 约 8 ms/拍；
