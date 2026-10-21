@@ -206,14 +206,11 @@ def _sample_no_replace(rng: np.random.Generator, pool: np.ndarray,
     if k <= 0 or n_rows <= 0:
         return np.zeros((max(0, n_rows), 0), np.int64)
     idx = rng.integers(0, len(pool), size=(n_rows, k))
-    # 去重：把重复的那几个重新抽（碰撞率很低，只处理撞了的行）
+    # 去重：碰撞率很低；撞了的行用"不放回抽样"重抽，保证每行 k 个都不重复
     bad = np.array([len(set(row)) < k for row in idx])
-    tries = 0
-    while bad.any() and tries < 8:
-        nb = int(bad.sum())
-        idx[bad] = rng.integers(0, len(pool), size=(nb, k))
-        bad = np.array([len(set(row)) < k for row in idx])
-        tries += 1
+    if bad.any() and k <= len(pool):
+        for i in np.flatnonzero(bad):
+            idx[i] = rng.choice(len(pool), size=k, replace=False)
     return pool[idx]
 
 
