@@ -65,6 +65,7 @@ class Spec:
     # ---- 区内链 ----
     layer_ratio: tuple = (2.0, 3.0, 4.0, 5.0)   # L2..L5 = 通道数 × 比例（必须递增）
     k_near: int = 8                             # 每个神经元接上一层几个
+    self_copy: bool = True                     # 每个神经元额外接"上一层同一位置"一条（local3d 的自身拷贝）
     l1_active: float = 0.50                     # L1 活跃比例（ON/OFF 各半）
     layer_active: tuple = (0.40, 0.30, 0.20, 0.10)  # L2..L5 的 top-k 比例
     # ---- 前额叶 ----
@@ -91,11 +92,6 @@ class Spec:
     return_adapt: float = 0.2
     motor_group: int = 512          # 运动相关前额叶组大小（跨区汇聚）
     motor_target_frac: float = 0.10  # 运动组标定目标活跃比例（比前额叶松）
-    # 第二套控制：各区自己直连运动区（反射/习惯），天生难改；
-    # 前额叶可以通过抑制细胞把它压住（"整体上前额叶赢"）。
-    reflex_gain: float = 0.6
-    reflex_on: bool = False      # 第二套控制（各区→运动区）：接线已实现，效果未调好，默认关
-    reflex_inh: bool = True
     # ---- 运动区 ----
     n_muscle: int = 12              # 12 个关节（以后接 Go2）
     n_force: int = 10               # 每块肌肉力度档数
