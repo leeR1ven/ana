@@ -1,0 +1,4 @@
+numpy>=1.24
+# 可选：有 torch 时引擎自动用 torch 后端（CPU 上约快 3 倍）；
+# 没有也能跑，会退回 numpy（np.bincount），规模要相应调小。
+torch>=2.0

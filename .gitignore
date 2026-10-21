@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.npz
+!docs/*.npz
+.venv/
+*.pt
+runs/
