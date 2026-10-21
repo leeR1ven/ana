@@ -513,6 +513,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     brain = Brain(engine=eng, spec=spec, geo=geo, ids=ids, layers=layers,
                   pfc_ids=pfc_all, pfc_groups=pfc_groups, motor=motor,
                   encoder=enc)
+    calibrate_layers(brain)
     if spec.pfc_filter:
         # 常亮/常灭的神经元不带"是哪一个输入"的信息，不往前额叶送。
         # 必须在标定之前做：否则门槛会把死单元也算进分位数。
@@ -667,8 +668,9 @@ def _filter_invariant(brain: "Brain", ticks: int | None = None) -> dict:
         return {}
     ticks = int(ticks or sp.filter_ticks)
     rates = {name: np.zeros(L.size, np.float32) for name, L in brain.layers.items()}
-    # 筛选按"这个身体实际经历到的分布"来判，不按随机图
-    stream = _reference_stream(brain, ticks, sp.seed + 77, dog_only=True)
+    # 参考分布要"杂"：只用身体截图会让绝大部分神经元永远不亮，
+    # 它们会被误判成"常灭"而剪掉（实测只剩 2%）。一半身体、一半通用场景。
+    stream = _reference_stream(brain, ticks, sp.seed + 77, dog_only=False)
     eng.act[:] = 0.0
     for obs in stream:
         for _ in range(18):         # 让活动传到最后一层（5 层 + 两级中继，深链要 15 拍左右）
@@ -709,3 +711,22 @@ def _filter_invariant(brain: "Brain", ticks: int | None = None) -> dict:
         eng.rebuild_backend()
     brain.filtered = filtered
     return filtered
+
+
+def calibrate_layers(brain: "Brain", ticks: int = 8) -> None:
+    """层内门槛/带宽按"这个神经元自己实测的驱动"定。
+
+    链式架构的原话：门槛/带宽要按该神经元自己拿到的信号定，不能用整层统计量。
+    做法：跑几个参考场景，量出每个神经元驱动的时间平均，把带宽设成这个平均值，
+    于是"典型驱动"恰好对应满响应；再由 top-k 决定谁被选中。
+    不这样做，驱动会沿"5 层 + 两级中继"逐层衰减（实测每层掉一半）。
+    """
+    eng = brain.engine
+    rng = np.random.default_rng(brain.spec.seed + 31)
+    buf = _collect_drive(brain, ticks, rng, warmup=18)
+    # 用"这个神经元自己驱动的 75% 分位"当带宽：中位数会被大量 0 干扰，
+    # 均值会被少数极大值拉高，分位数最稳（链式架构也是用中位驱动定的）。
+    q = np.quantile(buf, 0.75, axis=0)
+    for name, L in brain.layers.items():
+        m = np.maximum(q[L.ids], 1e-4)
+        eng.set_thr(L.ids, thr=0.0, soft=m.astype(np.float32))
