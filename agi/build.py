@@ -427,9 +427,10 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             # 回程由"抑制神经元规则"自己选：抑制细胞广撒网地读前额叶整体活动，
             # 整体越活跃压得越狠；只有局部那条特别强的回程线压不住、能过线。
             # 思考焦点一换，上一帧那条不再是最强，就被整体抑制压回去。
-            pick1 = _sample_no_replace(rng, pfc, nr1, 8)
-            eng.connect(np.repeat(ret1, 8), pick1.reshape(-1),
-                        rng.uniform(0.20, 0.30, nr1 * 8), group=G.RET_L1)
+            k1 = min(8, len(pfc))
+            pick1 = _sample_no_replace(rng, pfc, nr1, k1)
+            eng.connect(np.repeat(ret1, k1), pick1.reshape(-1),
+                        rng.uniform(0.20, 0.30, nr1 * k1), group=G.RET_L1)
             # 抑制细胞读"一大片"前额叶（广撒网），所以它的活动≈整体活跃程度
             n_broad = min(96, len(pfc))
             picki = _sample_no_replace(rng, pfc, 1, n_broad)
