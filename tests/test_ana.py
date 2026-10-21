@@ -114,10 +114,15 @@ def test_architecture_invariants():
     issues = check(b, verbose=False)
     assert not issues, issues
     eng = b.engine
-    # 1:1 专用线：每个"区"前额叶神经元恰好一条入线（运动组是跨区汇聚，另算）
+    # 1:1 专用线：保留的"区"前额叶神经元恰好一条入线；被筛掉的 0 条
     region_pfc = np.concatenate(list(b.pfc_groups.values()))
+    masks = [b.filtered.get(f"{r}.L{d}", np.zeros(len(g), bool))
+             for (r, d), g in b.pfc_groups.items()]
+    fdrop = np.concatenate(masks) if masks else np.zeros(len(region_pfc), bool)
     indeg = np.bincount(eng.dst, minlength=eng.n)
-    assert np.all(indeg[region_pfc] == 1), "1:1 模式下前额叶必须一人一根线"
+    assert np.all(indeg[region_pfc[~fdrop]] == 1), "1:1 下保留的前额叶必须一人一根线"
+    assert np.all(indeg[region_pfc[fdrop]] == 0), "被筛掉的单元不该有入线"
+    assert 0 < int(fdrop.sum()) < len(fdrop), "常亮筛选应该筛掉一部分、不是全部"
     # v0 没有任何联想边
     assert int((eng.group == G.PL_PFC).sum()) == 0
     assert int((eng.group == G.PLASTIC).sum()) == 0
@@ -132,6 +137,22 @@ def test_architecture_invariants():
         assert len(f) == b.spec.n_force
         t = eng.thr[f]
         assert np.all(np.diff(t) >= 0), "力度档门槛必须单调"
+
+
+def test_filter_removes_invariant():
+    b = tiny()
+    assert b.filtered, "默认应该做常亮筛选"
+    total = sum(int(m.sum()) for m in b.filtered.values())
+    assert total > 0
+    # 被筛掉的神经元不能还有向前的专用线
+    eng = b.engine
+    for name, L in b.layers.items():
+        bad = b.filtered[name]
+        if bad.any():
+            assert not (np.isin(eng.src, L.ids[bad]) & (eng.group == G.PFC)).any()
+    # 关掉筛选就会多出边
+    b2 = build(build_spec("tiny", pfc_filter=False), verbose=False)
+    assert b2.engine.n_edges > eng.n_edges
 
 
 def test_architecture_two_modes():
@@ -194,6 +215,7 @@ def test_plastic_temporal_order():
         rule.apply(eng, B)
         eng.act[:] = 0.0
         rule.apply(eng, rest)        # 静息一拍：避免下一轮 A 变成"跟在 B 后面"
+    rule.flush(eng)          # 边是攒着批量写进去的
     m = eng.group == G.PL_PFC
     assert int(m.sum()) > 0, "顺序共现应该长出边"
     pairs = {(int(s), int(d)) for s, d in zip(eng.src[m], eng.dst[m])}
@@ -223,6 +245,7 @@ def test_plastic_topk():
             eng.act[:] = 0.0
             eng.act[ids[1:]] = 1.0
             rule.apply(eng, ids[1:])
+    rule.flush(eng)
     m = eng.group == G.PL_PFC
     src = eng.src[m]
     if len(src):

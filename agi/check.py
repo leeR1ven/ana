@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """架构自检：只查"架构上一定不成立"的事，不查效果。
 
 `check()` 是静态不变量（不跑网络）；`check_behavior()` 跑十几拍看通路是否通。
@@ -46,8 +46,14 @@ def check(brain, expect_no_plastic: bool = True, verbose: bool = False) -> list[
             add(f"{name}: top-k {L.k} 不在 1..{L.size}")
         if int(L.ids[-1]) - int(L.ids[0]) + 1 != L.size:
             add(f"{name}: 编号不是连续块（top-k 需要连续块）")
-        if not has_in[L.ids].all():
-            add(f"{name}: {int((~has_in[L.ids]).sum())} 个神经元没有入边")
+        bad = brain.filtered.get(name)
+        kept = (~bad) if bad is not None and len(bad) == L.size else np.ones(L.size, bool)
+        if not has_in[L.ids[kept]].all():
+            add(f"{name}: {int((~has_in[L.ids[kept]]).sum())} 个神经元没有入边")
+        if bad is not None and bad.any():
+            # 专用线是"从该细胞出去"的 group 30 边；被筛掉的不能还有
+            if (np.isin(eng.src, L.ids[bad]) & (eng.group == G.PFC)).any():
+                add(f"{name}: 被筛掉的神经元还接着专用线")
         key = (L.region, L.depth)
         if key not in brain.ids["relay"]:
             add(f"{name}: 缺专用线中继")
@@ -61,10 +67,11 @@ def check(brain, expect_no_plastic: bool = True, verbose: bool = False) -> list[
         f1[r1] = True
         f2 = np.zeros(n, bool)
         f2[r2] = True
-        if int((f1[eng.dst] & gf).sum()) != L.size:
-            add(f"{name}: 到第一级中继的专用线 {int((f1[eng.dst] & gf).sum())} != {L.size}")
-        if int((f2[eng.dst] & gf).sum()) != L.size:
-            add(f"{name}: 第二级中继入线 {int((f2[eng.dst] & gf).sum())} != {L.size}")
+        want = int(kept.sum())
+        if int((f1[eng.dst] & gf).sum()) != want:
+            add(f"{name}: 到第一级中继的专用线 {int((f1[eng.dst] & gf).sum())} != {want}")
+        if int((f2[eng.dst] & gf).sum()) != want:
+            add(f"{name}: 第二级中继入线 {int((f2[eng.dst] & gf).sum())} != {want}")
         # 回程：只在 L2..L5，且 ≤ 前向一半
         fl = np.zeros(n, bool)
         fl[L.ids] = True
@@ -93,8 +100,13 @@ def check(brain, expect_no_plastic: bool = True, verbose: bool = False) -> list[
     if expect_no_plastic and n_plastic:
         add(f"v0 可塑边应为 0，实际 {n_plastic}")
     for key, g in brain.pfc_groups.items():
-        if not has_in[g].all():
-            add(f"前额叶组 {key} 有 {int((~has_in[g]).sum())} 个神经元没有入线")
+        name = f"{key[0]}.L{key[1]}"
+        bad = brain.filtered.get(name)
+        kept_g = (~bad) if bad is not None and len(bad) == len(g) else np.ones(len(g), bool)
+        if not has_in[g[kept_g]].all():
+            add(f"前额叶组 {key} 有 {int((~has_in[g[kept_g]]).sum())} 个神经元没有入线")
+        if bad is not None and bad.any() and has_in[g[bad]].any():
+            add(f"前额叶组 {key}: 被筛掉的单元还有入线")
     if not np.isfinite(eng.thr[brain.pfc_ids]).all():
         add("前额叶门槛出现 NaN/Inf")
 

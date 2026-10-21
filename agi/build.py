@@ -93,6 +93,7 @@ class Brain:
     pfc_groups: dict
     motor: dict
     encoder: Encoder
+    filtered: dict = field(default_factory=dict)   # 层名 → 该层被"常亮/常灭"筛掉的掩码
 
     # ---------------------------------------------------------- 读
     def forces(self) -> np.ndarray:
@@ -121,9 +122,13 @@ class Brain:
 
     def summary(self) -> dict:
         est = self.spec.estimate()
+        kept = (sum(int((~m).sum()) for m in self.filtered.values())
+                if self.filtered else len(self.pfc_ids))
         return dict(
             neurons=self.engine.n, edges=self.engine.n_edges,
-            layers=len(self.layers), pfc=int(len(self.pfc_ids)),
+            layers=len(self.layers), pfc=kept,
+            pfc_total=int(len(self.pfc_ids)),
+            filtered_pfc=int(len(self.pfc_ids) - kept),
             input_cells=self.encoder.n_in,
             plastic_edges=int((self.engine.group == G.PLASTIC).sum()),
             pfc_internal=int((self.engine.group == G.PL_PFC).sum()),
@@ -499,13 +504,19 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
 
     # ---------------------------------------------------------- 5. 收尾
     eng.finalize()
-    total_pfc = int(sum(len(v) for v in pfc_groups.values())) + nm
-    eng.cfg.target_active = max(1, int(round(spec.pfc_target_frac * total_pfc)))
     pfc_all = np.concatenate([v for v in pfc_groups.values()] + [mpfc])
     enc = Encoder(spec, layout, n_in)
     brain = Brain(engine=eng, spec=spec, geo=geo, ids=ids, layers=layers,
                   pfc_ids=pfc_all, pfc_groups=pfc_groups, motor=motor,
                   encoder=enc)
+    if spec.pfc_filter:
+        # 常亮/常灭的神经元不带"是哪一个输入"的信息，不往前额叶送。
+        # 必须在标定之前做：否则门槛会把死单元也算进分位数。
+        _filter_invariant(brain)
+    kept_pfc = sum(int((~m).sum()) for m in brain.filtered.values()) if brain.filtered \
+        else int(sum(len(v) for v in pfc_groups.values()))
+    total_pfc = kept_pfc + nm
+    eng.cfg.target_active = max(1, int(round(spec.pfc_target_frac * total_pfc)))
     if do_calibrate:
         cal = calibrate(brain, ticks=calib_ticks, seed=spec.seed + 101)
         if verbose:
@@ -522,15 +533,36 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     return brain
 
 
+# ---------------------------------------------------------------- 参考输入
+def _reference_stream(brain: "Brain", n: int, seed: int, dog_only: bool = False) -> list:
+    """标定/筛选用的参考输入：一半来自虚拟身体，一半是通用场景。
+
+    只用随机图会把门槛标到"噪声分布"上；只用虚拟身体又会过拟合这个任务。
+    """
+    from .world import VirtualDog
+    sp = brain.spec
+    rng = np.random.default_rng(seed)
+    dog = VirtualDog(sp, seed=seed)
+    out = []
+    for i in range(n):
+        if dog_only or i % 2 == 0:
+            f = (rng.random(sp.n_muscle, dtype=np.float32) * 0.6)
+            dog.step(f)
+            out.append(dog.observe())
+        else:
+            out.append(sample_observation(sp, rng, i))
+    return out
+
+
 # ---------------------------------------------------------------- 标定
 def _collect_drive(brain: "Brain", ticks: int, rng: np.random.Generator,
                    warmup: int = 6) -> np.ndarray:
     """跑 ticks 拍，记录每个神经元的驱动（不更新门槛，只采样）。"""
     eng, sp, enc = brain.engine, brain.spec, brain.encoder
     buf = np.empty((ticks, eng.n), np.float32)
+    stream = _reference_stream(brain, ticks, int(rng.integers(1, 10_000)))
     eng.act[:] = 0.0
-    for t in range(ticks):
-        obs = sample_observation(sp, rng, t)
+    for t, obs in enumerate(stream):
         # 每个场景先"看几拍"让活动沿链传到前额叶（v0 有 5 层 + 两级中继，
         # 传播要 6~8 拍），再采这一拍的驱动。
         for _ in range(warmup):
@@ -593,3 +625,62 @@ def _group_thr(eng, ids, buf: np.ndarray, frac: float) -> None:
     soft = max(0.5 * sd, 0.05 * max(thr, 1e-6), 1e-3)
     eng.set_thr(ids, thr=np.full(len(ids), thr, np.float32),
                 soft=np.full(len(ids), soft, np.float32))
+
+
+# ---------------------------------------------------------------- 常亮筛选
+def _filter_invariant(brain: "Brain", ticks: int | None = None) -> dict:
+    """常亮/常灭的神经元不往前额叶送（按跨输入 std 筛，不按当前亮不亮）。
+
+    依据：输入层这类"永远一半亮"的细胞，跨输入几乎没有起伏，不带"是哪一个
+    输入"的信息；把它们送进前额叶只会让联想连接被背景淹没。
+
+    只有 1:1 模式能做：中继和前额叶跟层神经元同序号，按序号剪就行。
+    组合模式（fan-in>1）不做筛选，留待以后按 PFC 单元统计。
+    """
+    sp, eng = brain.spec, brain.engine
+    if not (sp.pfc_fan_in == 1 and abs(sp.pfc_ratio - 1.0) < 1e-9):
+        return {}
+    ticks = int(ticks or sp.filter_ticks)
+    rates = {name: np.zeros(L.size, np.float32) for name, L in brain.layers.items()}
+    # 筛选按"这个身体实际经历到的分布"来判，不按随机图
+    stream = _reference_stream(brain, ticks, sp.seed + 77, dog_only=True)
+    eng.act[:] = 0.0
+    for obs in stream:
+        for _ in range(6):          # 让活动传到最后一层
+            eng.set_input(brain.encoder.encode(obs))
+            eng.step()
+        a = eng.act_np
+        for name, L in brain.layers.items():
+            rates[name] += (a[L.ids] > 0.35)
+    eng.act[:] = 0.0
+
+    drop_src, drop_dst = [], []
+    filtered: dict[str, np.ndarray] = {}
+    for name, L in brain.layers.items():
+        p = rates[name] / ticks
+        # 常灭（几乎不出现在任何经历里）和常亮（几乎总在）都不送前额叶：
+        # 前者是死单元，后者不带"是哪一个输入"的信息。
+        bad = (p < sp.filter_min_rate) | (p > sp.filter_max_rate)
+        filtered[name] = bad
+        if not bad.any():
+            continue
+        idx = np.flatnonzero(bad)
+        r1, r2 = brain.ids["relay"][(L.region, L.depth)]
+        pfc = brain.pfc_groups[(L.region, L.depth)]
+        if len(r1) != L.size or len(pfc) != L.size:
+            filtered[name] = np.zeros(L.size, bool)
+            continue
+        drop_src += [L.ids[idx], r1[idx], r2[idx]]
+        drop_dst += [r1[idx], r2[idx], pfc[idx]]
+        eng.set_thr(pfc[idx], thr=1e9, soft=1.0)   # 死单元：永远过不了门槛
+        eng._counted_f[pfc[idx]] = False
+    if drop_src:
+        n = eng.n
+        src = np.concatenate(drop_src).astype(np.int64)
+        dst = np.concatenate(drop_dst).astype(np.int64)
+        keys = src * n + dst
+        ek = eng.src.astype(np.int64) * n + eng.dst.astype(np.int64)
+        eng.drop_edges(np.isin(ek, keys))
+        eng.rebuild_backend()
+    brain.filtered = filtered
+    return filtered

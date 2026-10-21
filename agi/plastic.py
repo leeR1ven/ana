@@ -42,6 +42,8 @@ class PlasticConfig:
     decay_every: int = 2000         # 每多少拍整体降权一次
     decay: float = 0.995
     max_pairs: int = 4096           # 一拍最多处理几对（防止爆）
+    flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
+    flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
     in_floor: float = 1.0           # 入边和下限（防除零）
 
@@ -52,7 +54,11 @@ class PlasticRule:
     def __init__(self, cfg: PlasticConfig | None = None, seed: int = 3):
         self.cfg = cfg or PlasticConfig()
         self.rng = np.random.default_rng(seed)
-        self._idx: dict[int, int] = {}     # key = src*n+dst → edge index
+        self._idx: dict[int, int] = {}     # key = src*n+dst → 已写入引擎的边下标
+        self._pending: dict[int, int] = {}  # key → 待写入缓冲区下标
+        self._ns: list[int] = []
+        self._nd: list[int] = []
+        self._nw: list[float] = []
         self._prev = np.zeros(0, np.int64)
         self._grown = 0
         self._strengthened = 0
@@ -73,18 +79,36 @@ class PlasticRule:
         grown = strengthened = 0
         if len(prev) and len(cur):
             grown, strengthened = self._hebb(engine, prev, cur)
-        pruned = 0
         self.t += 1
+        pruned = 0
+        due = (self._ns and (len(self._ns) >= self.cfg.flush_edges
+                             or self.t % max(1, self.cfg.flush_every) == 0))
+        if due:
+            pruned = self.flush(engine)
+        self._prev = cur
+        return dict(edges=self.count(engine), grown=grown,
+                    strengthened=strengthened, pruned=pruned,
+                    pending=len(self._ns))
+
+    def flush(self, engine) -> int:
+        """把攒着的新边真正写进引擎（会重建后端张量，所以别每拍都做）。"""
+        if not self._ns:
+            return 0
+        engine.add_edges(np.asarray(self._ns, np.int32),
+                         np.asarray(self._nd, np.int32),
+                         np.asarray(self._nw, np.float32), group=self.cfg.group)
+        base = len(engine.w) - len(self._ns)
+        for j, k in enumerate(self._pending):
+            self._idx[k] = base + j
+        self._ns, self._nd, self._nw, self._pending = [], [], [], {}
+        self._prune_out(engine)
+        pruned = 0
         if self.cfg.decay_every and self.t % self.cfg.decay_every == 0:
             self._decay(engine)
             pruned = self._prune(engine)
-        if grown or strengthened or pruned:
-            self._prune_out(engine)
-            self.sync(engine)
-            engine.rebuild_backend()
-        self._prev = cur
-        return dict(edges=self.count(engine), grown=grown,
-                    strengthened=strengthened, pruned=pruned)
+        self.sync(engine)
+        engine.rebuild_backend()
+        return pruned
 
     # ------------------------------------------------------------ 赫布
     def _hebb(self, engine, prev: np.ndarray, cur: np.ndarray) -> tuple[int, int]:
@@ -112,36 +136,39 @@ class PlasticRule:
         return self._grown, self._strengthened
 
     def _apply_pairs(self, engine, src: np.ndarray, dst: np.ndarray, eta: float) -> None:
+        """处理采样到的 (src→dst) 对：已写入的就地加强，新的先攒在缓冲区。"""
         if not len(src):
             return
         n = engine.n
         keys = np.unique(src.astype(np.int64) * n + dst.astype(np.int64))
-        s = (keys // n).astype(np.int64)
-        d = (keys % n).astype(np.int64)
-        new_s, new_d, new_w = [], [], []
+        s = (keys // n).tolist()
+        d = (keys % n).tolist()
         old_i, old_inc = [], []
-        idx = self._idx
-        for a, b in zip(s.tolist(), d.tolist()):
-            i = idx.get(a * n + b)
-            if i is None:
-                new_s.append(a)
-                new_d.append(b)
-                new_w.append(eta)
-            else:
+        grown = 0
+        for a, b in zip(s, d):
+            k = a * n + b
+            i = self._idx.get(k)
+            if i is not None:
                 w = engine.w[i]
                 inc = eta * max(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
                 if inc > 0:
                     old_i.append(i)
                     old_inc.append(inc)
+                continue
+            j = self._pending.get(k)
+            if j is not None:
+                w = self._nw[j]
+                inc = eta * max(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
+                self._nw[j] = min(self.cfg.w_max, w + inc)
+                continue
+            self._pending[k] = len(self._ns)
+            self._ns.append(a)
+            self._nd.append(b)
+            self._nw.append(float(eta))
+            grown += 1
         if old_i:
             engine.w[old_i] += np.asarray(old_inc, np.float32)
-        if new_s:
-            base = len(engine.w)
-            engine.add_edges(np.asarray(new_s, np.int32), np.asarray(new_d, np.int32),
-                             np.asarray(new_w, np.float32), group=self.cfg.group)
-            for j, (a, b) in enumerate(zip(new_s, new_d)):
-                idx[a * n + b] = base + j
-        self._grown += len(new_s)
+        self._grown += grown
         self._strengthened += len(old_i)
 
     # ------------------------------------------------------------ 剪枝/降权

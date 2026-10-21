@@ -73,6 +73,11 @@ class Spec:
     pfc_thr_frac: float = 0.15      # 门槛 = 入边权重和 × 这个比例（1:1 时≈直通）
     pfc_soft_frac: float = 0.35
     pfc_target_frac: float = 0.10   # 整体阈值调控的目标活跃比例（1:1 时≈该层活跃率）
+    # 常亮/常灭不往前额叶送（按跨输入 std 筛，不按当前亮不亮）
+    pfc_filter: bool = True
+    filter_min_rate: float = 0.02   # 参考分布里活跃率的下限（低于=常灭）
+    filter_max_rate: float = 0.60   # 上限（高于=常亮；这种单元几乎不带"是哪一个输入"）
+    filter_ticks: int = 12          # 用多少个参考场景统计
     motor_group: int = 512          # 运动相关前额叶组大小（跨区汇聚）
     motor_target_frac: float = 0.10  # 运动组标定目标活跃比例（比前额叶松）
     # ---- 运动区 ----
@@ -159,6 +164,10 @@ class Spec:
             e.append("pfc_fan_in 必须在 1..64")
         if not (0.0 < self.pfc_target_frac < 1.0):
             e.append("pfc_target_frac 必须在 (0,1)")
+        if not (0.0 <= self.filter_min_rate < self.filter_max_rate <= 1.0):
+            e.append("filter_min_rate 必须 < filter_max_rate，且在 [0,1]")
+        if int(self.filter_ticks) < 1:
+            e.append("filter_ticks 至少 1")
 
         if not (1 <= int(self.substeps) <= 8):
             e.append("substeps 必须在 1..8")
