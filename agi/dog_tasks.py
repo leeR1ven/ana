@@ -343,7 +343,8 @@ def _run_lift(kw, ticks, brain=None, leg=0):
     d = np.abs(np.degrees(q - q0))
     mine = float(d[leg * 3: leg * 3 + 3].mean())
     others = float(np.delete(d, [leg * 3, leg * 3 + 1, leg * 3 + 2]).mean())
-    return dict(ok=bool(mine > others + 3.0), mine=mine, others=others, fallen=bool(body.fallen()))
+    # 用绝对角度变化判：全身耦合会让"其他腿"也动，比较差值会被污染
+    return dict(ok=bool(mine > 5.0), mine=mine, others=others, fallen=bool(body.fallen()))
 
 
 def _run_gaze(kw, ticks, brain=None):
