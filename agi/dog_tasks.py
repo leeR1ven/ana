@@ -141,6 +141,14 @@ def _wire_clock(brain, kw):
                 src.append(int(r))
                 dst.append(int(m))
                 w.append(gain)
+    # 第二条通路：随机相位（给转向/跳跃这类瞬时动作留一条不按步态的驱动）
+    rgain = float(kw.get("clock_rand", 0.0))
+    if rgain > 0:
+        for m in mpfc:
+            for r in rng.choice(ring, 3, replace=False):
+                src.append(int(r))
+                dst.append(int(m))
+                w.append(rgain)
     eng.add_edges(np.array(src, np.int32), np.array(dst, np.int32),
                   np.array(w, np.float32), group=78)
     eng.rebuild_backend()

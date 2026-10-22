@@ -27,10 +27,10 @@ from agi.dog_tasks import SKILLS, run_skill          # noqa: E402
 
 PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in",
           "posture_offset", "clock_motor", "torso_force",
-          "wall_inh_gain", "clock_slope")
+          "wall_inh_gain", "clock_slope", "clock_rand")
 RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
           "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
-          "posture_offset": (0.12, 1.4), "clock_motor": (0.0, 0.9), "torso_force": (0.0, 1.0), "wall_inh_gain": (0.3, 2.0), "clock_slope": (2, 14)}
+          "posture_offset": (0.12, 1.4), "clock_motor": (0.0, 0.9), "torso_force": (0.0, 1.0), "wall_inh_gain": (0.3, 2.0), "clock_slope": (2, 14), "clock_rand": (0.0, 0.6)}
 
 
 def random_kw(rng):
@@ -45,7 +45,8 @@ def random_kw(rng):
                 torso_force=float(rng.uniform(0.0, 1.0)),
                 wall_inh=True, wall_inh_gain=float(rng.uniform(0.5, 2.0)),
                 clock_gait=True, clock_knee=0.5,
-                clock_slope=int(rng.integers(2, 15)))
+                clock_slope=int(rng.integers(2, 15)),
+                clock_rand=float(rng.uniform(0.0, 0.4)))
 
 
 def mutate(kw, rng):
@@ -66,6 +67,7 @@ def mutate(kw, rng):
     out["clock_gait"] = True
     out["clock_knee"] = 0.5
     out["clock_slope"] = int(np.clip(out.get("clock_slope", 3) + rng.integers(-2, 3), 2, 14))
+    out["clock_rand"] = float(np.clip(out.get("clock_rand", 0.0) * rng.uniform(0.7, 1.4), 0.0, 0.6))
     out["wall_inh"] = True
     out["wall_inh_gain"] = float(np.clip(out.get("wall_inh_gain", 1.0) * rng.uniform(0.8, 1.25), 0.3, 2.0))
     return out
