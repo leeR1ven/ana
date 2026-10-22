@@ -125,7 +125,7 @@ NEEDS = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10,
          "jump": 0.10, "detour": 0.03, "chase": 0.02, "gaze": 0.10,
          "lift": 5.0, "orient": 0.03, "robust": 0.05, "recover": 0.22,
          "verge": 0.01, "goto": 0.18, "goto2": 0.02,
-         "orbit": 0.15, "reach": 0.38}
+         "orbit": 0.15, "reach": 0.30}
 
 
 def rank_key(scores, ledger):

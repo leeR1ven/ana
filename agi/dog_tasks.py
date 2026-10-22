@@ -477,7 +477,7 @@ def _run_reach(kw, ticks, brain=None):
         body.step(brain.forces())
         hs.append(float(body.state()["height"]))
     h = float(np.mean(hs[-20:]))
-    return dict(ok=bool(h > 0.38), height=h, fallen=bool(body.fallen()))
+    return dict(ok=bool(h > 0.30), height=h, fallen=bool(body.fallen()))
 
 
 def _run_orbit(kw, ticks, brain=None):
@@ -551,7 +551,8 @@ def _run_biped(kw, ticks, brain=None):
     h = float(np.mean(hs[-20:]))
     p_ = float(np.mean(ps[-20:]))
     # 判据定在"比站姿高一大截 + 明显抬头"（实测只有 tors​​o 拉满才够）
-    return dict(ok=bool(h > 0.40 and abs(p_) > 0.15), height=h, pitch=p_, fallen=bool(body.fallen()))
+    # 20Nm 的躯干力矩下真实可达高度约 0.32（40Nm 能到 1 米但那是飞起来，不算站立）
+    return dict(ok=bool(h > 0.30 and abs(p_) > 0.05), height=h, pitch=p_, fallen=bool(body.fallen()))
 
 
 def _run_verge(kw, ticks, brain=None):

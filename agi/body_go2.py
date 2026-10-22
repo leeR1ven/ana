@@ -64,7 +64,8 @@ class Go2Body:
     def _pd_step(self) -> None:
         if getattr(self, 'torso', 0.0):
             # 第 13 条执行器：躯干翻滚力矩（狗本来就有躯干肌）
-            self.data.xfrc_applied[1, 3] = self.torso * 40.0
+            # 力矩上限要小，否则不是"立起来"而是把整只狗掀飞（实测 40Nm 能到 1 米高）
+            self.data.xfrc_applied[1, 3] = self.torso * float(os.environ.get('ANA_TORSO_NM', '20'))
         q = self.data.qpos[7:19]
         qd = self.data.qvel[6:18]
         f = self.forces
