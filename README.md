@@ -93,6 +93,7 @@ docs/ROADMAP.md       v0 → 记忆生长 → 运动学习 → 宇树 Go2
 docs/TRAINING.md      训练/测试/模型融合（含老库的经验与我的判断）
 docs/P1_LOG.md        P1 实验数据与判断
 docs/P2_LOG.md        P2（状态→动作蒸馏）第一次尝试与判断
+docs/BWC_NOTES.md     读 born-wired-cortex 的对照笔记（它怎么做/我们怎么做/学什么）
 docs/CONTRACTS.md     模块接口与替换契约
 ```
 
