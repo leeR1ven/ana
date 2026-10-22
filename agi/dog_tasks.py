@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "crawl", "shake", "orbit", "reach", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
+          "back", "tilt", "crawl", "shake", "orbit", "reach", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
 
 
 def _brain(kw, preset="small"):
@@ -899,21 +899,31 @@ def _run_tilt(kw, ticks, brain=None):
 
 
 def _run_lie(kw, ticks, brain=None):
-    """趴下：从站姿开始，要求最后趴低（高度 < 0.12）。"""
+    """凑近看地上的东西：目标在画面下方（低处），狗要压低身体贴近它。
+
+    "趴下"不是姿势题，是为了看清地上目标的副产物。
+    """
+    from agi.world import _blob
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
     body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
     body.reset()
+    body.torso_cmd = float(kw.get("torso_force", 0.0))
     body.data.qpos[2] = 0.26
     body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
     body.mj.mj_forward(body.model, body.data)
+    px = sp.px
+    low = np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                     _blob(px, 0.5, 0.85, 0.14, (0.95, 0.2, 0.1)))    # 地上的目标
+    hs = []
     for _ in range(ticks):
         eng.clear_external()
-        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.set_input(brain.encoder.encode(_obs(sp, low)))
         eng.step()
         body.step(brain.forces())
-    h = float(body.state()["height"])
-    return dict(ok=h < 0.12, height=h, fallen=bool(body.fallen()))
+        hs.append(float(body.state()["height"]))
+    h = float(np.mean(hs[-20:]))
+    return dict(ok=bool(h < 0.22), height=h, fallen=bool(body.fallen()))
 
 
 def _run_obstacle(kw, ticks, brain=None, strict=False):
