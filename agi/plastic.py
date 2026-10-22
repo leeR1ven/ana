@@ -70,6 +70,9 @@ class PlasticConfig:
     use_ref: float = 8.0            # 用到这个次数，可塑性降到一半
     long_term_at: float = 30.0      # 用到这个次数算"长期记忆"（只是标记，不冻结）
     plast_min: float = 0.01         # 可塑性下限：再老的记忆也留着这一点点可改性
+    # 复用优先：源头的出边够多了就不再长新边，只加强已有的（老边才会被反复用到）
+    reuse_first: bool = True
+    min_out_new: int = 4            # 出边少于这个数才允许长新边
 
 
 class PlasticRule:
@@ -234,10 +237,17 @@ class PlasticRule:
             self._strengthened += int(found.sum())
         if (~found).any():
             nk = keys[~found]
+            ncnt_new = cnt[~found]
+            if self.cfg.reuse_first and len(self._keys):
+                outdeg = np.bincount((self._keys // n).astype(np.int64), minlength=n)
+                allow = outdeg[nk // n] < self.cfg.min_out_new
+                nk, ncnt_new = nk[allow], ncnt_new[allow]
+            if not len(nk):
+                return
             self._ns.append((nk // n).astype(np.int32))
             self._nd.append((nk % n).astype(np.int32))
             self._nw.append(np.full(len(nk), eta, np.float32))
-            self._nc.append(cnt[~found].astype(np.float32))
+            self._nc.append(ncnt_new.astype(np.float32))
             self._pending_n += len(nk)
             self._grown += int((~found).sum())
 
