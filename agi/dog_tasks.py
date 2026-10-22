@@ -340,17 +340,17 @@ def _audio_from(sp, side):
     return au
 
 
-def _balance_reflex(forces, roll, pitch, gain=0.8):
+def _balance_reflex(forces, roll, pitch, gain=0.8, thr=0.15):
     """平衡反射：往哪边倒，就加大那一侧对侧腿的支撑（脊髓/前庭级）。
 
     roll > 0 表示向右倾 -> 加大右侧（FR/RR）腿的支撑去顶回来；pitch 同理。
     """
     f = np.array(forces, np.float32, copy=True)
-    if abs(roll) > 0.15:
+    if abs(roll) > thr:
         legs = (1, 3) if roll > 0 else (0, 2)      # 0=FL 1=FR 2=RL 3=RR
         for leg in legs:
             f[leg * 3 + 1] = min(1.0, f[leg * 3 + 1] + gain * min(1.0, abs(roll) / 0.6))
-    if abs(pitch) > 0.20:
+    if abs(pitch) > max(0.20, thr * 1.3):
         legs = (2, 3) if pitch > 0 else (0, 1)
         for leg in legs:
             f[leg * 3 + 2] = min(1.0, f[leg * 3 + 2] + gain * min(1.0, abs(pitch) / 0.8))
@@ -368,7 +368,10 @@ def _run_robust(kw, ticks, brain=None):
     body.mj.mj_forward(body.model, body.data)
     x0 = float(body.data.qpos[0])
     rng = np.random.default_rng(int(kw.get("seed", 0)) + 5)
-    reflex = bool(kw.get("balance_reflex"))
+    reflex = bool(kw.get("balance_reflex", True))
+    gain = float(kw.get("balance_gain", 1.5))
+    thr = float(kw.get("balance_thr", 0.15))
+    push = float(kw.get("push_amp", 0.3))
     fell = False
     for t in range(ticks):
         eng.clear_external()
@@ -377,10 +380,10 @@ def _run_robust(kw, ticks, brain=None):
         f = brain.forces()
         if reflex:
             st = body.state()
-            f = _balance_reflex(f, st["roll"], st["pitch"])
+            f = _balance_reflex(f, st["roll"], st["pitch"], gain=gain, thr=thr)
         body.step(f)
         if t % 12 == 0:                      # 每 12 拍来一下横向推力
-            body.data.qvel[1] += float(rng.uniform(-0.6, 0.6))
+            body.data.qvel[1] += float(rng.uniform(-push, push))
         if body.fallen():
             fell = True
     dx = abs(float(body.data.qpos[0]) - x0)
