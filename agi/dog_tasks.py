@@ -22,7 +22,7 @@ from agi.encoding import Observation       # noqa: E402
 
 
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk_to_ball",
-          "turn1", "turn2", "getup1", "getup2")
+          "turn1", "turn2", "getup1", "getup2", "follow", "obstacle")
 
 
 def _brain(kw, preset="small"):
@@ -86,6 +86,10 @@ def _run_two_sides(kw, ticks, brain=None):
 def run_skill(kw, skill, ticks=100, brain=None):
     if skill == "walk_to_ball":
         return _run_two_sides(kw, ticks, brain=brain)
+    if skill == "follow":
+        return _run_follow(kw, ticks, brain=brain)
+    if skill == "obstacle":
+        return _run_obstacle(kw, ticks, brain=brain)
 
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
@@ -144,3 +148,60 @@ if __name__ == "__main__":
     p.add_argument("--ticks", type=int, default=100)
     a = p.parse_args()
     print(run_skill({}, a.skill, a.ticks))
+
+def _ball_moving(sp, x0, x1, frac):
+    """球在画面里从 x0 移到 x1（frac ∈ [0,1]）。"""
+    return _ball(sp, x0 + (x1 - x0) * frac)
+
+
+def _run_follow(kw, ticks, brain=None):
+    """跟随：球左右扫，两个方向各跑一次，横向位移必须相反（跟着球走）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    out = {}
+    for tag, (a, b) in (("lr", (0.15, 0.85)), ("rl", (0.85, 0.15))):
+        body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+        body.reset()
+        body.data.qpos[2] = 0.24
+        body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+        body.mj.mj_forward(body.model, body.data)
+        y0 = float(body.data.qpos[1])
+        for t in range(ticks):
+            img = _ball_moving(sp, a, b, t / max(1, ticks - 1))
+            eng.clear_external()
+            eng.set_input(brain.encoder.encode(_obs(sp, img)))
+            eng.step()
+            body.step(brain.forces())
+        out[tag] = float(body.data.qpos[1]) - y0
+    diff = out["lr"] - out["rl"]
+    return dict(ok=abs(diff) > 0.004, dy_follow=diff, fallen=False)
+
+
+def _run_obstacle(kw, ticks, brain=None):
+    """避障：正前方有黑色障碍时，前进量必须明显小于没有障碍时。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    px = sp.px
+
+    def episode(with_wall):
+        body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+        body.reset()
+        body.data.qpos[2] = 0.24
+        body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+        body.mj.mj_forward(body.model, body.data)
+        x0 = float(body.data.qpos[0])
+        for _ in range(ticks):
+            img = _ball(sp, 0.5)
+            if with_wall:
+                img = img.copy()
+                img[px // 2:, px // 3: 2 * px // 3] = 0.0     # 正前方一堵黑墙
+            eng.clear_external()
+            eng.set_input(brain.encoder.encode(_obs(sp, img)))
+            eng.step()
+            body.step(brain.forces())
+        return float(body.data.qpos[0]) - x0
+
+    d0 = episode(False)
+    d1 = episode(True)
+    ok = abs(d1) < abs(d0) * 0.6 + 1e-6
+    return dict(ok=ok, dx_free=d0, dx_wall=d1, fallen=False)
