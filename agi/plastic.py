@@ -65,6 +65,11 @@ class PlasticConfig:
     pmi_floor: float = 0.12         # 闸门下限（再差也留 12%）
     pmi_decay_every: int = 500      # 多久把共现计数衰减一次（滑动窗口）
     pmi_decay: float = 0.97
+    # 固化：用得多就变难改，超过阈值就冻结（长期记忆）
+    consolidate: bool = True
+    use_ref: float = 8.0            # 用到这个次数，可塑性降到一半
+    freeze_at: float = 30.0         # 用到这个次数，冻结（不再改变）
+    plast_min: float = 0.02         # 可塑性下限（冻结前仍留一点）
 
 
 class PlasticRule:
@@ -84,6 +89,8 @@ class PlasticRule:
         self._kid = np.zeros(0, np.int64)
         self._gid = np.zeros(0, np.int64)
         self._cnt_edge = np.zeros(0, np.float32)
+        self._use = np.zeros(0, np.float32)      # 每条边被用过几次
+        self._frozen = np.zeros(0, bool)         # 冻结 = 长期记忆
         self._cnt_unit = np.zeros(0, np.float32)
         self._prev = np.zeros(0, np.int64)
         self._settled = None            # 上一次"稳定下来"的码
@@ -214,6 +221,14 @@ class PlasticRule:
             gi = self._gid[ei]                         # 引擎全局下标
             w = engine.w[gi]
             inc = eta * np.maximum(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
+            if self.cfg.consolidate and len(self._use) == self._cnt_edge.size:
+                # 固化：用得越多越难改；冻结的完全不再改
+                plast = self.cfg.use_ref / (self.cfg.use_ref + self._use[ei])
+                plast = np.maximum(plast, self.cfg.plast_min)
+                plast[self._frozen[ei]] = 0.0
+                inc = inc * plast
+                self._use[ei] += cnt[found]
+                self._frozen[ei] |= self._use[ei] >= self.cfg.freeze_at
             engine.w[gi] += inc.astype(np.float32)
             self._cnt_edge[ei] += cnt[found]
             self._strengthened += int(found.sum())
@@ -225,6 +240,25 @@ class PlasticRule:
             self._nc.append(cnt[~found].astype(np.float32))
             self._pending_n += len(nk)
             self._grown += int((~found).sum())
+
+    def reinforce(self, engine, src, dst, eta: float | None = None) -> int:
+        """监督式：把给定的 (src→dst) 对按凹增长加强（蒸馏"状态→动作"用）。"""
+        if not self.cfg.enabled:
+            return 0
+        src = np.unique(np.asarray(src, np.int64))
+        dst = np.unique(np.asarray(dst, np.int64))
+        if not len(src) or not len(dst):
+            return 0
+        s = np.repeat(src, len(dst))
+        d = np.tile(dst, len(src))
+        cap = self.cfg.max_pairs * 4
+        if len(s) > cap:
+            pick = self.rng.choice(len(s), cap, replace=False)
+            s, d = s[pick], d[pick]
+        self._apply_pairs(engine, s, d, float(eta if eta is not None else self.cfg.eta))
+        if self._pending_n >= self.cfg.flush_edges:
+            self.flush(engine)
+        return len(src)
 
     # ------------------------------------------------------------ 写入
     def flush(self, engine) -> int:
@@ -245,6 +279,8 @@ class PlasticRule:
         engine.add_edges((uniq // n).astype(np.int32), (uniq % n).astype(np.int32),
                          ww, group=self.cfg.group)
         self._cnt_edge = np.concatenate([self._cnt_edge, cc])
+        self._use = np.concatenate([self._use, cc.copy()])
+        self._frozen = np.concatenate([self._frozen, np.zeros(len(cc), bool)])
         self._ns, self._nd, self._nw, self._nc = [], [], [], []
         self._pending_n = 0
         self._rebuild_index(engine)
@@ -289,6 +325,8 @@ class PlasticRule:
         mask[idx[~keep_local]] = True
         engine.drop_edges(mask)
         self._cnt_edge = self._cnt_edge[keep_local]
+        self._use = self._use[keep_local]
+        self._frozen = self._frozen[keep_local]
         self._rebuild_index(engine)
 
     def _decay(self, engine) -> None:

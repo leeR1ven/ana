@@ -263,6 +263,29 @@ def test_pmi_gate():
     assert g[0] > 0.5 and g[1] < 0.5
 
 
+def test_consolidation_freezes():
+    """用得多就变难改：冻结之后同样的反复使用不能再把权重推上去。"""
+    def run(consolidate):
+        eng = Engine(EngineConfig(target_active=0))
+        ids = eng.add_block(2, kind="pfc", region="p", thr=0.0, soft=1.0)
+        eng.finalize()
+        rule = PlasticRule(PlasticConfig(enabled=True, eta=0.3, topk_out=8,
+                                         full_cross=100, min_change=0.0,
+                                         flush_every=1, flush_edges=1000,
+                                         consolidate=consolidate,
+                                         use_ref=2.0, freeze_at=5.0))
+        for _ in range(40):
+            rule.reinforce(eng, np.array([ids[0]]), np.array([ids[1]]))
+            rule.flush(eng)
+        m = eng.group == 40
+        return float(eng.w[m][0]), bool(rule._frozen[0]) if len(rule._frozen) else False
+
+    w_cons, frozen = run(True)
+    w_plain, _ = run(False)
+    assert w_cons < w_plain - 0.1, f"固化后应该涨得更少：{w_cons:.2f} vs {w_plain:.2f}"
+    assert frozen
+
+
 def test_plastic_disabled_is_noop():
     b = tiny()
     rule = PlasticRule(PlasticConfig(enabled=False))
