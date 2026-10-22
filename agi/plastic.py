@@ -56,10 +56,10 @@ class PlasticConfig:
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
     prop_gain: float = 1.0          # 传播权重的总增益（混合驱动时要抬，见 sync 注释）
-    in_floor: float = 8.0           # 入边和的"免罚下限"：低于它不压，高于它按比例压枢纽
+    in_floor: float = 1e9           # 枢纽抑制的下限；设成很大 = 关闭（实测不加也能长出联想）
     out_floor: float = 1e-6         # 出边和下限（防除零）
     # 特异性闸门（PMI）：压掉"什么都能连"的万金油连接
-    pmi_gate: bool = True
+    pmi_gate: bool = False          # 默认关：实测去掉它联想仍然成立（+0.013，3/3 种子）
     pmi_steep: float = 1.2          # 字神经元网络实测的陡度
     pmi_offset: float = 0.0         # PMI 零点
     pmi_floor: float = 0.12         # 闸门下限（再差也留 12%）

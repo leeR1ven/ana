@@ -25,7 +25,8 @@ from agi import Cortex, PlasticConfig, PlasticRule, build, build_spec   # noqa: 
 from experiments.p1_recall import run_obs, scene_obs                    # noqa: E402
 
 
-def trial(ticks: int, gain: float, net_seed: int, hold: int = 20, learn: bool = True) -> dict:
+def trial(ticks: int, gain: float, net_seed: int, hold: int = 20, learn: bool = True,
+          pmi: bool = True, in_floor: float = 64.0, eta: float = 0.08) -> dict:
     sp = build_spec("xl", pfc_topk=0.15, pfc_adapt=0.0, seed=7 + net_seed)
     brain = build(sp, verbose=False)
     eng = brain.engine
@@ -34,7 +35,8 @@ def trial(ticks: int, gain: float, net_seed: int, hold: int = 20, learn: bool = 
         full_cross=2_000_000, max_pairs=200_000,
         settle_overlap=0.9, settle_ticks=2, novelty_window=2,
         flush_every=50, flush_edges=200_000, decay_every=1000, decay=0.995,
-        sharpen=1.0, in_floor=64.0, pmi_floor=0.6, pmi_steep=0.5,
+        sharpen=1.0, in_floor=in_floor, pmi_gate=pmi,
+        pmi_floor=0.6, pmi_steep=0.5,
         prop_gain=gain), seed=3 + net_seed)
     ctx = Cortex(brain, plastic=rule)
     cyc = [1, 2, 3, 2]
@@ -73,10 +75,15 @@ def main(argv=None) -> int:
     p.add_argument("--gain", type=float, default=4.0)
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--control", action="store_true", help="不学习（对照）")
+    p.add_argument("--no-pmi", action="store_true")
+    p.add_argument("--no-hub", action="store_true")
+    p.add_argument("--eta", type=float, default=0.08)
     args = p.parse_args(argv)
     res = []
     for s in range(args.seeds):
-        r = trial(args.ticks, args.gain, s, learn=not args.control)
+        r = trial(args.ticks, args.gain, s, learn=not args.control,
+                  pmi=not args.no_pmi,
+                  in_floor=1e9 if args.no_hub else 64.0, eta=args.eta)
         res.append(r)
         print(f"seed {s}: B独有 {r['bonly']:4d}  只看B {r['base']:.3f}  "
               f"带A {r['cueA']:.3f}  带C {r['cueC']:.3f}  "
