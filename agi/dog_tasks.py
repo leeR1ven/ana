@@ -241,7 +241,8 @@ def _run_obstacle(kw, ticks, brain=None):
             img = _ball(sp, 0.5)
             if with_wall:
                 img = img.copy()
-                img[px // 2:, px // 3: 2 * px // 3] = 0.0     # 正前方一堵黑墙
+                # 正前方一堵蓝墙：球是红的，蓝色通道能把它和球分开
+                img[px // 2:, px // 3: 2 * px // 3] = np.array([0.1, 0.2, 0.95], np.float32)
             eng.clear_external()
             eng.set_input(brain.encoder.encode(_obs(sp, img)))
             eng.step()
