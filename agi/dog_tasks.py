@@ -114,11 +114,32 @@ def _wire_clock(brain, kw):
     mpfc = np.asarray(brain.motor["mpfc"], dtype=np.int64).ravel()
     rng = np.random.default_rng(int(kw.get("seed", 0)) + 991)
     src, dst, w = [], [], []
-    for m in mpfc:
-        for r in rng.choice(ring, 4, replace=False):
-            src.append(int(r))
-            dst.append(int(m))
-            w.append(gain)
+    if kw.get("clock_gait"):
+        # 步态版接线：给运动区单元加上"属于哪条腿"和"相位偏移"。
+        # 对角腿（FL+RR / FR+RL）相差半个周期；反向只需把相位递减。
+        n_mpfc = len(mpfc)
+        per = max(1, n_mpfc // 12)          # 每块肌肉分到的 mpfc 单元数
+        leg_phase = (0.0, 0.5, 0.5, 0.0)    # FL, FR, RL, RR（对角同相）
+        rev = bool(kw.get("clock_reverse"))
+        for mus in range(12):
+            leg = mus // 3
+            ph = leg_phase[leg] + (0.5 if mus % 3 == 2 else 0.0)   # 膝再差半拍
+            base = (ph * len(ring)) % len(ring)
+            for i in range(per):
+                unit = int(mpfc[min(n_mpfc - 1, mus * per + i)])
+                if rev:
+                    idx = int((base - i * 3) % len(ring))
+                else:
+                    idx = int((base + i * 3) % len(ring))
+                src.append(int(ring[idx]))
+                dst.append(unit)
+                w.append(gain)
+    else:
+        for m in mpfc:
+            for r in rng.choice(ring, 4, replace=False):
+                src.append(int(r))
+                dst.append(int(m))
+                w.append(gain)
     eng.add_edges(np.array(src, np.int32), np.array(dst, np.int32),
                   np.array(w, np.float32), group=78)
     eng.rebuild_backend()
