@@ -487,8 +487,11 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         K = len(members)
         eng.connect(np.repeat(f, K), np.tile(members, spec.n_force),
                     np.ones(spec.n_force * K, np.float32), group=G.MOTOR_DRIVE)
-        # 第 l 档：亮到 1.5+0.65·l 个就点（亮 1 个不出力，亮 8 个满档）
-        thr = (1.5 + 0.65 * np.arange(spec.n_force, dtype=np.float32))
+        # 第 l 档：亮到"该肌肉成员数"的 (10% + 9%·l) 就点。
+        # 阈值必须随成员数缩放——原来固定 1.5+0.65·l 是按 8 个成员设计的，
+        # 实际每块肌肉约 42 个成员、近七成亮着，于是 10 档全过、力度恒等于 1。
+        thr = (float(K) * (0.10 + 0.09 * np.arange(spec.n_force,
+                                                   dtype=np.float32))).astype(np.float32)
         eng.set_thr(f, thr=thr, soft=np.full(spec.n_force, 0.6, np.float32))
         mforce[m] = f
     # 门控：I（抑制）/ D（去抑制）
