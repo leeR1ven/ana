@@ -1,0 +1,88 @@
+# -*- coding: utf-8 -*-
+"""概念名表：把"哪些神经元代表某个东西"存成名字，之后用名字写规则、装进网络。
+
+为什么需要（born-wired-cortex 的教训）：皮层是重新编码的，**不能按输入编号写本能**
+（实测满屏红时，亮在"输入层红色那一段"的比例和乱猜差不多）。正确做法是：
+
+    1. 标定：给它看一个例子，记下哪些神经元亮了，起个名字；
+    2. 用名字写规则：  视觉:红 -> 运动:站姿  1.0  固定
+    3. 装：把规则展开成一根根连接。
+
+这里只做"名字"这一层（存文件、按名取单元、按规则装边），规则表是最简的元组列表。
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+
+
+class NameTable:
+    """名字 → 神经元编号集合。可以存成 JSON、换个进程再读回来。"""
+
+    def __init__(self, path: str | Path | None = None):
+        self.path = Path(path) if path else None
+        self.names: dict[str, list[int]] = {}
+
+    # ---------------------------------------------------------- 标定
+    def calibrate(self, brain, obs, name: str) -> np.ndarray:
+        """让脑子看一个例子，把它亮的前额叶单元记在这个名字下。"""
+        from agi.loop import Cortex          # 延迟导入，避免循环
+
+        ctx = Cortex(brain)
+        for _ in range(12):          # 码要几拍才稳定
+            ctx.tick(obs, record=False)
+        ids = np.asarray(brain.pfc_code(), np.int64)
+        self.names[name] = [int(x) for x in ids]
+        return ids
+
+    def get(self, name: str) -> np.ndarray:
+        if name not in self.names:
+            raise KeyError(f"没有这个名字：{name}")
+        return np.asarray(self.names[name], np.int64)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self.names
+
+    def __len__(self) -> int:
+        return len(self.names)
+
+    # ---------------------------------------------------------- 存/取
+    def save(self, path: str | Path | None = None) -> Path:
+        p = Path(path) if path else self.path
+        if p is None:
+            raise ValueError("没有给路径")
+        p.write_text(json.dumps(self.names, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.path = p
+        return p
+
+    @classmethod
+    def load(cls, path: str | Path) -> "NameTable":
+        t = cls(path)
+        t.names = {k: [int(x) for x in v]
+                   for k, v in json.loads(Path(path).read_text(encoding="utf-8")).items()}
+        return t
+
+    # ---------------------------------------------------------- 装
+    def install(self, engine, rules, group: int = 61, verbose: bool = False) -> int:
+        """按名字把规则装成连接。
+
+        rules: 可迭代的 (源名字, 目标神经元编号数组, 权重) ——
+               目标通常是一块肌肉的力度档，用 `brain.motor["force"][m][:k]` 取。
+        """
+        total = 0
+        for src_name, dst_ids, w in rules:
+            src = self.get(src_name)
+            dst_ids = np.asarray(dst_ids, np.int64)
+            eng_src = np.repeat(src, len(dst_ids))
+            eng_dst = np.tile(dst_ids, len(src))
+            engine.add_edges(eng_src.astype(np.int32), eng_dst.astype(np.int32),
+                             np.full(len(eng_src), float(w), np.float32), group=group)
+            total += len(eng_src)
+            if verbose:
+                print(f"  装 {src_name}: {len(src)} 单元 × {len(dst_ids)} 目标 = "
+                      f"{len(eng_src)} 条边（权重 {w}）")
+        if total:
+            engine.rebuild_backend()
+        return total
