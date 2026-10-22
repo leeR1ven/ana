@@ -544,6 +544,15 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                             factor=int(spec.dentate_factor),
                                             region=_r))
         ids["dentate"] = np.concatenate(_parts)
+        # 回忆读出：与扩维层一一对应的"读出神经元"。它只收长期边镜像过来的输入，
+        # 不参与扩维层的名额竞争，所以"想起来的"能在正常活动里看见。
+        _dg = ids["dentate"]
+        _pos = np.stack([np.full(len(_dg), 0.98, np.float32),
+                         np.linspace(0, 1, len(_dg), dtype=np.float32),
+                         np.full(len(_dg), 0.4, np.float32)], 1)
+        ids["recall_out"] = eng.add_block(len(_dg), kind="pfc", region="time",
+                                          depth=0, thr=0.1, soft=0.5,
+                                          pos=_pos, counted=False)
 
     # ---- 海马体时间环：固定长度、每拍恰好一个亮 ----
     if spec.n_time > 0:

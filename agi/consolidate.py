@@ -23,7 +23,8 @@ class Consolidator:
     def __init__(self, engine, group: int = 65, repeats: int = 3,
                  lr: float = 0.05, cap: int = 64, flush_every: int = 50,
                  match: float = 0.8,
-                 region_decay: dict | None = None, decay_every: int = 200):
+                 region_decay: dict | None = None, decay_every: int = 200,
+                 mirror=None):
         self.eng = engine
         self.group = int(group)
         self.repeats = max(2, int(repeats))
@@ -33,6 +34,11 @@ class Consolidator:
         self.match = float(match)
         self.rng = np.random.default_rng(3)
         self.region_decay = region_decay or {}
+        self.mirror = None
+        if mirror is not None:
+            _s, _o = (np.asarray(x, np.int64) for x in mirror)
+            self.mirror = np.full(self.eng.n, -1, np.int64)
+            self.mirror[_s] = _o
         self.decay_every = max(1, int(decay_every))
         self.templates: list[dict] = []       # 见过的转移（模糊匹配）
         self.w: dict[int, float] = {}
@@ -113,9 +119,18 @@ class Consolidator:
             self.eng.drop_edges(old)
         ks = np.fromiter(self.w.keys(), np.int64, len(self.w))
         vs = np.fromiter(self.w.values(), np.float32, len(self.w))
-        self.eng.add_edges((ks // self.eng.n).astype(np.int32),
-                           (ks % self.eng.n).astype(np.int32), vs,
-                           group=self.group)
+        src = (ks // self.eng.n).astype(np.int32)
+        dst = (ks % self.eng.n).astype(np.int32)
+        self.eng.add_edges(src, dst, vs, group=self.group)
+        # 镜像一份到"回忆读出"神经元（不占名额），让回忆在活动里可见
+        if self.mirror is not None:
+            old_m = self.eng.group == (self.group + 1)
+            if old_m.any():
+                self.eng.drop_edges(old_m)
+            m = self.mirror
+            ok = (dst >= 0) & (dst < len(m))
+            self.eng.add_edges(src[ok], m[dst[ok]].astype(np.int32), vs[ok],
+                               group=self.group + 1)
         self.eng.rebuild_backend()
         return len(ks)
 
