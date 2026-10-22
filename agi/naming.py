@@ -86,3 +86,56 @@ class NameTable:
         if total:
             engine.rebuild_backend()
         return total
+
+
+class RuleTable:
+    """规则表：一行一条"名字 → 动作"，可存文件、可换进程重装。
+
+    一行的格式：{"src": "站", "muscles": "all" 或 [0,1,...], "levels": 5, "weight": 6.0}
+    """
+
+    def __init__(self, path=None):
+        self.path = Path(path) if path else None
+        self.rules: list[dict] = []
+
+    def add(self, src: str, levels: int, weight: float = 6.0,
+            muscles="all") -> None:
+        self.rules.append(dict(src=src, muscles=muscles, levels=int(levels),
+                               weight=float(weight)))
+
+    def save(self, path=None) -> Path:
+        p = Path(path) if path else self.path
+        if p is None:
+            raise ValueError("没有给路径")
+        p.write_text(json.dumps(self.rules, ensure_ascii=False, indent=1),
+                     encoding="utf-8")
+        self.path = p
+        return p
+
+    @classmethod
+    def load(cls, path) -> "RuleTable":
+        t = cls(path)
+        t.rules = json.loads(Path(path).read_text(encoding="utf-8"))
+        return t
+
+    def install(self, engine, brain, table: "NameTable", group: int = 62) -> int:
+        """按规则把"名字"展开成"名字里的单元 → 各肌肉的力度档"。"""
+        total = 0
+        for r in self.rules:
+            src = table.get(r["src"])
+            muscles = (range(brain.spec.n_muscle) if r["muscles"] == "all"
+                       else r["muscles"])
+            for m in muscles:
+                dst = brain.motor["force"][m][: int(r["levels"])]
+                s = np.repeat(src, len(dst))
+                d = np.tile(dst, len(src))
+                engine.add_edges(s.astype(np.int32), d.astype(np.int32),
+                                 np.full(len(s), float(r["weight"]), np.float32),
+                                 group=group)
+                total += len(s)
+        if total:
+            engine.rebuild_backend()
+        return total
+
+    def __len__(self) -> int:
+        return len(self.rules)
