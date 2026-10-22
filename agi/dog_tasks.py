@@ -76,6 +76,14 @@ def _wire_wall(brain, kw):
             j = (y * px + x) * 3 + 2          # 蓝通道
             base = a0 + j * 2 * n_lv
             ids.extend(range(base, base + n_lv))   # 正的温度计格
+    # 通用"危险"通路：近处红色大块（逼近物）也触发抑制 -> 反射性后退/停下
+    cy = cx = (px - 1) / 2.0
+    for y in range(px):
+        for x in range(px):
+            if (y - cy) ** 2 + (x - cx) ** 2 <= (0.30 * px) ** 2:
+                j = (y * px + x) * 3 + 0      # 红通道、中心区域
+                base = a0 + j * 2 * n_lv
+                ids.extend(range(base, base + n_lv))
     ids = np.asarray(ids, np.int64)
     if len(ids) == 0:
         return
