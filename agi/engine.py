@@ -581,6 +581,7 @@ class Engine:
         self._base = np.r_[self._base, np.zeros(size, np.float32)]
         self._adapt_np = np.r_[self._adapt_np, np.zeros(size, np.float32)]
         self._prio = np.r_[self._prio, np.zeros(size, np.float32)]
+        self._in_sum = np.r_[self._in_sum, np.zeros(size, np.float32)]
         self.selected = np.r_[self.selected, np.zeros(size, bool)]
         self._n += size
         self.rebuild_backend()
