@@ -159,8 +159,12 @@ def _(h):
 
 @case("记忆", "即时回忆")
 def _(h):
-    h.run(scene(h.px, 0.5, 0.5), n=14)
-    snap = h.dent()
+    # 要跟"第 8 拍当时的内容"比，而不是最后一拍（码每拍会漂一点）
+    snaps = []
+    for k in range(14):
+        h.run(scene(h.px, 0.5, 0.5), n=1, reset=(k == 0))   # 只在第一拍清零，否则永远settle不下来
+        snaps.append(h.dent())
+    snap = snaps[8]
     h.b.binder.flush()                  # 时间绑定是 binder 写的（组 64），不是 consolidator
     slot = int(h.b.time_ring.ids[8])
     h.eng.act[:] = 0.0
