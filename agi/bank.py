@@ -89,6 +89,9 @@ class Harness:
 
 
 # ------------------------------------------------------------------ 题目
+# 两类题，意义不同：
+#   诊断类：检查架构有没有问题（同图同码、稀疏、噪声…），不求"做事"
+#   任务类：真的去做一件事（注视红球、站住、走过去…），评的是能力
 CASES = []
 
 
@@ -235,7 +238,8 @@ def run(seed: int = 0, only: str | None = None):
         print(f"  [{'通过' if ok else '失败'}] {cat} · {name}")
     print()
     for cat, (k, n) in by_cat.items():
-        print(f"  {cat}: {k}/{n} = {k / max(1, n):.0%}")
+        kind = "诊断" if cat in ("感知", "抗干扰", "记忆") else "任务"
+        print(f"  [{kind}] {cat}: {k}/{n} = {k / max(1, n):.0%}")
     k, n = total[True], total[True] + total[False]
     print(f"  总计: {k}/{n} = {k / max(1, n):.0%}")
     return k, n
