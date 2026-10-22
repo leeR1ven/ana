@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift")
+          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover")
 
 
 def _brain(kw, preset="small"):
@@ -199,6 +199,12 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_gaze(kw, ticks, brain=brain)
     if skill == "lift":
         return _run_lift(kw, ticks, brain=brain)
+    if skill == "orient":
+        return _run_orient(kw, ticks, brain=brain)
+    if skill == "robust":
+        return _run_robust(kw, ticks, brain=brain)
+    if skill == "recover":
+        return _run_recover(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -319,6 +325,89 @@ def _leg_lift_reflex(forces, touch, gain=0.9):
             f[leg * 3 + 1] = min(1.0, f[leg * 3 + 1] + gain)
             f[leg * 3 + 2] = min(1.0, f[leg * 3 + 2] + gain)
     return f
+
+
+def _audio_from(sp, side):
+    """模拟两只耳朵：side<0 左声道强，side>0 右声道强。"""
+    au = np.full((sp.audio_bands, sp.audio_frames), 0.2, np.float32)
+    b = sp.audio_bands
+    if side < 0:
+        au[: max(1, b // 3), :] = 0.95
+        au[2 * b // 3:, :] = 0.35
+    else:
+        au[2 * b // 3:, :] = 0.95
+        au[: max(1, b // 3), :] = 0.35
+    return au
+
+
+def _run_robust(kw, ticks, brain=None):
+    """鲁棒运动：一路有随机推力，要求不摔且仍有位移。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    rng = np.random.default_rng(int(kw.get("seed", 0)) + 5)
+    fell = False
+    for t in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+        if t % 12 == 0:                      # 每 12 拍来一下横向推力
+            body.data.qvel[1] += float(rng.uniform(-0.6, 0.6))
+        if body.fallen():
+            fell = True
+    dx = abs(float(body.data.qpos[0]) - x0)
+    return dict(ok=(not fell) and dx > 0.05, dx=dx, fell=fell, fallen=bool(body.fallen()))
+
+
+def _run_recover(kw, ticks, brain=None):
+    """摔倒自恢复：从四脚朝天起步，要求最后站起来。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.torso_cmd = float(kw.get("torso_force", 0.0))
+    body.data.qpos[2] = 0.12
+    body.data.qpos[3:7] = np.array([0.0, 1.0, 0.0, 0.0])      # 翻过来
+    body.data.qpos[7:19] = np.array([0.0, 1.8, -2.8] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+    h = float(body.state()["height"])
+    return dict(ok=h > 0.22, height=h, fallen=bool(body.fallen()))
+
+
+def _run_orient(kw, ticks, brain=None):
+    """听声定向：声音从左/右来，机体应往声音那边转（两次偏航符号相反）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    out = {}
+    for tag, side in (("left", -1), ("right", 1)):
+        body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+        body.reset()
+        body.data.qpos[2] = 0.24
+        body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+        body.mj.mj_forward(body.model, body.data)
+        yaw0 = float(body.state()["yaw"])
+        for _ in range(ticks):
+            o = _obs(sp, _ball(sp, 0.5))
+            o.audio = _audio_from(sp, side)
+            eng.clear_external()
+            eng.set_input(brain.encoder.encode(o))
+            eng.step()
+            body.step(brain.forces())
+        out[tag] = float(body.state()["yaw"]) - yaw0
+    diff = out["left"] - out["right"]
+    return dict(ok=bool(abs(diff) > 0.03), dyaw_left=out["left"],
+                dyaw_right=out["right"], fallen=False)
 
 
 def _run_lift(kw, ticks, brain=None, leg=0):
