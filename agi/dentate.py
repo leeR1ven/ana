@@ -44,5 +44,7 @@ def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
 
 
 def dentate_code(engine, ids) -> np.ndarray:
+    """返回活跃单元的**全局编号**（不是局部下标）。"""
+    ids = np.asarray(ids)
     a = np.asarray(engine.act)[ids]
-    return np.flatnonzero(a > 0.5)
+    return ids[np.flatnonzero(a > 0.5)]
