@@ -640,6 +640,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     if spec.threshold_theta > 0:
         # 放在最后再设一遍：所有分位标定/增益都已经跑完，此时设才不会被打回
         _apply_stage_quantile(brain, spec)
+        if getattr(spec, "desaturate", False):
+            from .desat import desaturate as _desat
+            _desat(brain, spec)
     return brain
 
 
