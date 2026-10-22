@@ -306,7 +306,63 @@ def run(seed: int = 0, only: str | None = None):
     return k, n
 
 
+if False:  # 入口已移到文件末尾（新题在它之后定义，不能提前跑）
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--only", default=None)
+    a = ap.parse_args()
+    run(a.seed, a.only)
+
+@case("感知", "跨区一致")
+def _(h):
+    # 同一张图两次，视觉 L5 的码必须完全一样
+    ids = np.concatenate([L.ids for n, L in h.b.layers.items() if n.endswith(".L5")])
+    def l5():
+        a = np.asarray(h.eng.act).copy()
+        return set(np.flatnonzero(a[ids] > 0.5).tolist())
+    h.run(scene(h.px, 0.5, 0.5))
+    a = l5()
+    h.run(scene(h.px, 0.5, 0.5))
+    return a == l5()
+
+
+@case("感知", "位置分辨")
+def _(h):
+    h.run(scene(h.px, 0.25, 0.25))
+    a = h.pfc()
+    h.run(scene(h.px, 0.75, 0.75))
+    return jac(a, h.pfc()) < 0.7
+
+
+@case("记忆", "短期覆盖")
+def _(h):
+    A = scene(h.px, 0.3, 0.3)
+    B = scene(h.px, seed=7)
+    for k in range(10):
+        h.run(A, n=1, reset=(k == 0))
+    slot = int(h.b.time_ring.ids[5])
+    codeA = h.dent()
+    h.b.binder.flush()
+    # 走满一圈相关位置（时间格被重用）
+    for k in range(600):
+        h.ctx.tick(obs_of(h.px, B if k % 20 else scene(h.px, 0.7, 0.7), h.sp), record=False)
+    h.b.binder.flush()
+    codeB = h.dent()
+    h.eng.act[:] = 0.0
+    h.eng.reset_adaptation()
+    for _ in range(8):
+        h.eng.clear_external()
+        h.eng.set_input(np.zeros(h.b.encoder.n_in, np.float32))
+        h.eng.set_external([slot], np.ones(1, np.float32))
+        h.eng.step()
+    got = set(dentate_code(h.eng, h.dg).tolist())
+    ha = len(got & codeA) / max(1, len(codeA))
+    hb = len(got & codeB) / max(1, len(codeB))
+    return hb >= ha
+
+
 if __name__ == "__main__":
+    import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--only", default=None)
