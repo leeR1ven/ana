@@ -60,33 +60,40 @@ def _wire_wall(brain, kw):
     vis = np.asarray(brain.layers["vision.L5"].ids, dtype=np.int64)
     px = sp.px
 
-    def act_of(with_wall):
+    BLUE = np.array([0.1, 0.2, 0.95], np.float32)
+
+    def act_of(img, ticks=12):
         acc = None
-        for t in range(12):
-            img = _ball(sp, 0.5)
-            if with_wall:
-                img = img.copy()
-                img[px // 2:, px // 3: 2 * px // 3] = np.array([0.1, 0.2, 0.95], np.float32)
+        for _ in range(ticks):
             eng.clear_external()
             eng.set_input(brain.encoder.encode(_obs(sp, img)))
             eng.step()
             a = np.asarray(eng.act)[vis].copy()
             acc = a if acc is None else acc + a
-        return acc / 12
+        return acc / ticks
 
-    a0 = act_of(False)
-    a1 = act_of(True)
-    # 用"有墙时熄灭"的单元（a0 高、a1 低）：它们直接兴奋力度细胞
-    # 有墙 -> 它们灭 -> 力度掉 -> 停下；无墙 -> 它们亮 -> 正常走
-    drop = a0 - a1
-    cand = np.where(a0 > 0.3)[0]
-    cand = cand[np.argsort(drop[cand])[-32:]] if len(cand) >= 4 else np.argsort(drop)[-32:]
-    pick = vis[cand]
-    force = np.concatenate([np.asarray(v).ravel() for v in brain.motor["force"].values()])
-    src = np.repeat(pick.astype(np.int32), len(force))
-    dst = np.tile(force.astype(np.int32), len(pick))
-    wgt = float(kw.get("wall_inh_in", 0.5))
-    eng.add_edges(src, dst, np.full(len(src), wgt, np.float32), group=82)
+    ball_img = _ball(sp, 0.5)
+    wall_img = np.full((px, px, 3), 0.05, np.float32)
+    wall_img[px // 2:, px // 3: 2 * px // 3] = BLUE
+
+    a_ball = act_of(ball_img)
+    a_wall = act_of(wall_img)
+    sel = np.where((a_wall > 0.4) & (a_ball < 0.15))[0]
+    if len(sel) < 8:
+        sel = np.argsort(a_wall - a_ball)[-24:]
+    sel = sel[np.argsort(a_wall[sel])[-64:]]
+    pick = vis[sel]
+
+    m = np.isin(eng.dst, wid)
+    eng.w[m] = 0.0                     # 旧的按位置输入的边作废
+    eng.wp[m] = 0.0
+    src = np.repeat(pick.astype(np.int32), len(wid))
+    dst = np.tile(wid, len(pick)).astype(np.int32)
+    wgt = float(kw.get("wall_inh_in", 1.0))
+    eng.add_edges(src, dst, np.full(len(src), wgt, np.float32), group=81)
+    # 入边改过之后必须重算阈值：thr_frac 是按"当前入边总量"定的，
+    # 沿用旧阈值会导致：无墙时也有一点点drive就越线 => 抑制常开。
+    eng.set_thr(wid, thr_frac=float(kw.get("wall_inh_thr", 0.30)), soft_frac=0.20)
     eng.rebuild_backend()
 
 
