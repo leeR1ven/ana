@@ -28,15 +28,15 @@ from agi.dog_tasks import SKILLS, run_skill          # noqa: E402
 PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in",
           "posture_offset", "clock_motor", "torso_force",
           "wall_inh_gain", "clock_slope", "clock_rand")
-RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
+RANGES = {"k_near": (3, 40), "region_links": (0, 256), "w_lo": (0.02, 0.5),
           "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
           "posture_offset": (0.12, 1.4), "clock_motor": (0.0, 0.9), "torso_force": (0.0, 1.0), "wall_inh_gain": (0.3, 2.0), "clock_slope": (2, 14), "clock_rand": (0.0, 0.6)}
 
 
 def random_kw(rng):
     return dict(seed=int(rng.integers(1, 10 ** 6)),
-                k_near=int(rng.integers(4, 25)),
-                region_links=int(rng.integers(0, 129)),
+                k_near=int(rng.integers(3, 41)),
+                region_links=int(rng.integers(0, 257)),
                 w_lo=float(rng.uniform(0.02, 0.5)),
                 w_hi=float(rng.uniform(0.3, 2.0)),
                 motor_fan_in=int(rng.integers(4, 65)),
@@ -52,8 +52,8 @@ def random_kw(rng):
 def mutate(kw, rng):
     out = dict(kw)
     out["seed"] = int(rng.integers(1, 10 ** 6))
-    out["k_near"] = int(np.clip(out.get("k_near", 8) + rng.integers(-2, 3), 4, 24))
-    out["region_links"] = int(np.clip(out.get("region_links", 64) + rng.integers(-16, 17), 0, 128))
+    out["k_near"] = int(np.clip(out.get("k_near", 8) + rng.integers(-3, 4), 3, 40))
+    out["region_links"] = int(np.clip(out.get("region_links", 64) + rng.integers(-32, 33), 0, 256))
     for k in ("w_lo", "w_hi"):
         lo, hi = RANGES[k]
         out[k] = float(np.clip(out.get(k, (lo + hi) / 2) * rng.uniform(0.8, 1.25), lo, hi))
