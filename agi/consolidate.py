@@ -22,7 +22,8 @@ def _overlap(a: np.ndarray, b: np.ndarray) -> float:
 class Consolidator:
     def __init__(self, engine, group: int = 65, repeats: int = 3,
                  lr: float = 0.05, cap: int = 64, flush_every: int = 50,
-                 match: float = 0.8):
+                 match: float = 0.8,
+                 region_decay: dict | None = None, decay_every: int = 200):
         self.eng = engine
         self.group = int(group)
         self.repeats = max(2, int(repeats))
@@ -31,6 +32,8 @@ class Consolidator:
         self.flush_every = max(1, int(flush_every))
         self.match = float(match)
         self.rng = np.random.default_rng(3)
+        self.region_decay = region_decay or {}
+        self.decay_every = max(1, int(decay_every))
         self.templates: list[dict] = []       # 见过的转移（模糊匹配）
         self.w: dict[int, float] = {}
         self.prev: np.ndarray | None = None
@@ -88,6 +91,18 @@ class Consolidator:
                         self.w[k] = min(1.0, v + self.lr * (1.0 - v))
         self.prev = cur
         self.t += 1
+        if self.region_decay and self.t % self.decay_every == 0:
+            # 分区遗忘：每个区按自己的速度衰减（"看得清的记得久、摸过的忘得快"）
+            reg = self.eng.region
+            for k in list(self.w.keys()):
+                d = k % self.eng.n
+                f = self.region_decay.get(int(reg[d]))
+                if f is None:
+                    continue
+                v = self.w[k] * f
+                self.w[k] = v if v >= 0.02 else 0.0
+            for k in [k for k, v in self.w.items() if v <= 0.0]:
+                del self.w[k]
 
     # ---------------------------------------------------------- 写入
     def flush(self) -> int:
