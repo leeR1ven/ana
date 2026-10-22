@@ -73,6 +73,7 @@ class Spec:
     # 让 3% 噪声下的码重合从 0.32 升到 0.92，同时异图分离反而更好（0.31→0.09）
     threshold_q: float = 0.70
     cpg_gain: float = 2.5                        # CPG → 运动区的权重
+    force_fan_in: int = 0                         # 力度细胞汇聚路数（0=全部≈42）
     cpg_units: int = 0                             # 脊髓级步态振荡器单元数（0=关）
     fovea: bool = True                              # 中心高分辨视觉（中央凹）
     touch_reflex: bool = False                     # 触觉→运动直连（碰腿抬腿）

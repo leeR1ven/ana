@@ -484,6 +484,11 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                           thr=0.0, soft=1.0,
                           pos=_band_pos(geo, "motor", spec.n_force, rng, geo.x_force))
         # 每根边权重 1：drive = 这一组里亮着的个数
+        # 汇聚路数可调：42 路会把任何精细时间结构（相位）平均掉，降下来相位才活得下来
+        _fan = int(getattr(spec, "force_fan_in", 0))
+        if 0 < _fan < len(members):
+            _sel = rng.choice(len(members), _fan, replace=False)
+            members = members[np.sort(_sel)]
         K = len(members)
         eng.connect(np.repeat(f, K), np.tile(members, spec.n_force),
                     np.ones(spec.n_force * K, np.float32), group=G.MOTOR_DRIVE)
