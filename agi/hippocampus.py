@@ -80,7 +80,7 @@ class HippoBinder:
         t = (self.ring.t // self.ring.ticks_per_slot) % self.ring.n   # 本地格号（不是全局编号）
         for p in act.tolist():
             self._grow(self.enc, p * self.ring.n + t)     # 特征 → 时间
-            self._grow(self.dec, t * 100000 + p)          # 时间 → 特征
+            self._grow(self.dec, t * 10_000_000 + p)          # 时间 → 特征
         self.t += 1
         if self.t % self.decay_every == 0:      # 短期记忆：定时衰减，弱边直接丢
             f = self.decay ** self.decay_every
@@ -108,8 +108,8 @@ class HippoBinder:
                 src, dst = (keys // self.ring.n).astype(np.int32), (keys % self.ring.n)
                 dst = self.ring.ids[dst]
             else:
-                src = self.ring.ids[(keys // 100000).astype(np.int64)]
-                dst = (keys % 100000).astype(np.int32)
+                src = self.ring.ids[(keys // 10_000_000).astype(np.int64)]
+                dst = (keys % 10_000_000).astype(np.int32)
             self.eng.add_edges(src, dst, vals, group=g)
             n += len(keys)
         self.eng.rebuild_backend()
