@@ -544,7 +544,7 @@ class Engine:
         if not self._final:
             raise RuntimeError("构建期直接 add_block")
         size = int(n_new)
-        ids = np.arange(self._n, self._n + size, np.int32)
+        ids = np.arange(self._n, self._n + size, dtype=np.int32)
         self._kind_f = np.r_[self._kind_f, np.full(size, KIND[kind], np.int8)]
         self._region_f = np.r_[self._region_f, np.full(size, self.region_id(region), np.int16)]
         self._depth_f = np.r_[self._depth_f, np.full(size, depth, np.int8)]
@@ -556,17 +556,21 @@ class Engine:
         self._alive_f = np.r_[self._alive_f, np.ones(size, bool)]
         self.act = np.r_[self.act_np, np.zeros(size, np.float32)]
         self.ext = np.r_[self.ext, np.zeros(size, np.float32)]
+        self._base = np.r_[self._base, np.zeros(size, np.float32)]
+        self._adapt_np = np.r_[self._adapt_np, np.zeros(size, np.float32)]
+        self._prio = np.r_[self._prio, np.zeros(size, np.float32)]
+        self.selected = np.r_[self.selected, np.zeros(size, bool)]
         self._n += size
         self.rebuild_backend()
         return ids
 
     def rebuild_backend(self) -> None:
-        """边或神经元变了以后重建后端张量（活动值保留）。"""
-        keep = self.act_np.copy()
+        """边或神经元变了以后重建后端张量。
+
+        `act` / `ext` 是后端张量共享的同一块 numpy 内存，重建时不需要再拷贝一次；
+        结构变化（grow_units）时 `act` 已经先被扩过，重建后自然对齐。
+        """
         self._build_backend()
-        self.act[:] = keep
-        if self._backend == "torch":
-            self._act_t.copy_(torch.from_numpy(self.act))
 
     def stats(self) -> dict:
         return dict(neurons=self._n, edges=self.n_edges, backend=self._backend,
