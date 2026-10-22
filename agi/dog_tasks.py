@@ -60,6 +60,7 @@ def _wire_wall(brain, kw):
     vis = np.asarray(brain.layers["vision.L5"].ids, dtype=np.int64)
     px = sp.px
 
+    eng.rebuild_backend()          # 量活性前必须先建好计算图，否则读到的 act 不可信
     BLUE = np.array([0.1, 0.2, 0.95], np.float32)
 
     def act_of(img, ticks=12):
