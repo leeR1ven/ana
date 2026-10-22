@@ -423,6 +423,7 @@ class Engine:
             if self.cfg.gain_div > 0.0 and self._gd_ids is not None:
                 s = float(self._act_t[self._gd_ids].sum())
                 b[self._gd_ids] *= 1.0 / (1.0 + self.cfg.gain_div * s)
+            self.last_drive = b          # 上一拍的驱动（只读、下一拍会被覆盖）
             return b
         d = np.bincount(self.dst, weights=self.wp * self.sgn * self.act[self.src],
                         minlength=self._n).astype(np.float32)
