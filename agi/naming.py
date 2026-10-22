@@ -118,20 +118,30 @@ class RuleTable:
         t.rules = json.loads(Path(path).read_text(encoding="utf-8"))
         return t
 
-    def install(self, engine, brain, table: "NameTable", group: int = 62) -> int:
-        """按规则把"名字"展开成"名字里的单元 → 各肌肉的力度档"。"""
+    def install(self, engine, brain, table: "NameTable", group: int = 62,
+                max_sources: int = 660) -> int:
+        """按规则把"名字"展开成"名字里的单元 → 各肌肉的力度档"。
+
+        源单元数要**封顶**：阈值模式下前额的码可能大好几倍，若按"每个源都连一条
+        固定权重的边"，力度细胞会被推满（实测点"站"从 0.5 变成 1.0）。
+        这里均匀抽稀到 max_sources，保证与标定时的手感一致。
+        """
         total = 0
         for r in self.rules:
             src = table.get(r["src"])
+            if len(src) > max_sources:
+                keep = np.linspace(0, len(src) - 1, max_sources).astype(int)
+                src = src[keep]
             muscles = (range(brain.spec.n_muscle) if r["muscles"] == "all"
                        else r["muscles"])
             for m in muscles:
                 dst = brain.motor["force"][m][: int(r["levels"])]
                 s = np.repeat(src, len(dst))
                 d = np.tile(dst, len(src))
+                # 权重按源数量均分：规则里的 weight 表示"总驱动"，与源多少无关
+                w = float(r["weight"]) / max(1, len(src))
                 engine.add_edges(s.astype(np.int32), d.astype(np.int32),
-                                 np.full(len(s), float(r["weight"]), np.float32),
-                                 group=group)
+                                 np.full(len(s), w, np.float32), group=group)
                 total += len(s)
         if total:
             engine.rebuild_backend()

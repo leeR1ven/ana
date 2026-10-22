@@ -902,6 +902,7 @@ def _apply_stage_quantile(brain: "Brain", spec) -> None:
     rel_map = brain.ids.get("relay", {})
     if rel_map:
         _cal(np.concatenate([np.asarray(v).ravel() for v in rel_map.values()]))
+    _cal(np.asarray(brain.motor["mr1"]))     # 运动中继也要有门槛，否则一片全亮把力度推满
     _cal(np.asarray(brain.pfc_ids))
     eng.cfg.target_active = 0
     eng.act[:] = 0.0

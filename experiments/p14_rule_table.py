@@ -40,6 +40,8 @@ def main() -> int:
     rt2 = RuleTable.load(RP)
     n = rt2.install(b2.engine, b2, nt2)
     cue = nt2.get("站")
+    if len(cue) > 660:                      # 装的边只来自封顶后的子集，提示也要用同一批
+        cue = cue[np.linspace(0, len(cue) - 1, 660).astype(int)]
     b2.engine.act[:] = 0.0
     b2.engine.reset_adaptation()
     for _ in range(12):
