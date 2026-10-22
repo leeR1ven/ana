@@ -69,3 +69,42 @@ if __name__ == "__main__":
     for name, pol in (("随机", random_policy), ("比例控制", controller_policy)):
         scores = [run_episode(pol, seed=s) for s in range(10)]
         print(f"{name}: 成功率 {sum(scores):.0f}/10")
+
+# ------------------------------------------------------------------ 脑策略
+class GazeBrain:
+    """用脑来做注视：看"球相对注视窗的位置"，输出动作。
+
+    视觉输入是"以注视窗为中心"的画面：球偏右，画面里的球就偏右。
+    动作取运动区前两条肌肉的力度（0..1 → -1..1）。
+    """
+
+    def __init__(self, seed: int = 0):
+        from .spec import build_spec
+        from .build import build
+        from .loop import Cortex
+        from .encoding import Observation
+        self.Observation = Observation
+        self.sp = build_spec("full", seed=7 + seed)
+        self.b = build(self.sp, verbose=False)
+        self.ctx = Cortex(self.b)
+        self.px = self.sp.px
+        self._img = np.zeros((self.px, self.px, 3), np.float32)
+
+    def _see(self, off):
+        from .world import _blob
+        px = self.px
+        x = 0.5 + 0.45 * float(np.clip(off[0], -1, 1))
+        y = 0.5 + 0.45 * float(np.clip(off[1], -1, 1))
+        img = np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                         _blob(px, x, y, 0.18, (0.95, 0.2, 0.1)))
+        sp = self.sp
+        return self.Observation(
+            vision=img, audio=np.zeros((sp.audio_bands, sp.audio_frames), np.float32),
+            touch=np.full(sp.touch_ch, 0.5, np.float32),
+            proprio=np.full(sp.proprio_ch, 0.5, np.float32),
+            balance=np.full(sp.balance_ch, 0.5, np.float32))
+
+    def policy(self, off):
+        self.ctx.tick(self._see(off), record=False)
+        f = np.asarray(self.b.forces(), np.float32)[:2]
+        return 2.0 * f - 1.0
