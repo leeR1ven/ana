@@ -44,7 +44,7 @@ def _run(eng, enc, obs, n=8):
     return np.asarray(eng.act).copy()
 
 
-def battery(sp, k_vision=24, k_other=12, n=8):
+def battery(sp, k_vision=64, k_other=24, n=8):
     """生成一批小测：返回 (名称, 观察) 的列表，成对（基线 + 改动）。"""
     px = sp.px
     v, a, t, p, b = _blank(sp, px)
