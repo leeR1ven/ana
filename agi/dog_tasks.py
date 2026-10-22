@@ -543,3 +543,45 @@ def _run_march(kw, ticks, brain=None):
         body.step(brain.forces())
     dx = float(body.data.qpos[0]) - x0
     return dict(ok=(not body.fallen()) and abs(dx) > 0.03, dx=dx, fallen=bool(body.fallen()))
+
+def _ball_pair(sp, x_norm, depth=1.0, baseline=0.06):
+    """两只眼：同一个球在左右两图里位置略有不同（视差 ∝ 基线/深度）。"""
+    from agi.world import _blob
+    px = sp.px
+    disp = 0.5 * baseline / max(0.2, float(depth))     # 归一化视差
+    left = np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                      _blob(px, float(np.clip(x_norm - disp, 0.02, 0.98)), 0.5, 0.18,
+                            (0.95, 0.2, 0.1)))
+    right = np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                       _blob(px, float(np.clip(x_norm + disp, 0.02, 0.98)), 0.5, 0.18,
+                             (0.95, 0.2, 0.1)))
+    return left, right
+
+
+def _red_center(img):
+    """图上红色像素的水平重心（归一化到 0~1），没有就返回 0.5。"""
+    r = img[:, :, 0]
+    g = img[:, :, 1]
+    mask = (r > 0.5) & (g < 0.5)
+    if not mask.any():
+        return 0.5
+    xs = np.nonzero(mask)[1]
+    return float(xs.mean()) / max(1, img.shape[1] - 1)
+
+def _obs_stereo(sp, left, right):
+    """两只眼进同一个脑：把左右两图各压成半高，上下拼成一张 px×px 的图。
+
+    这样不用改编码器布局（仍是 px*px*3），但每只眼的分辨率减半。
+    """
+    px = sp.px
+    h = px // 2
+    def half(a):
+        a = np.nan_to_num(np.asarray(a, np.float32), nan=0.05, posinf=1.0, neginf=0.0)
+        a = np.clip(a, 0.0, 1.0)
+        return a.reshape(h, 2, px, 3).mean(axis=1)      # 两行并一行（纯 numpy）
+
+    img = np.zeros((px, px, 3), np.float32)
+    img[:h] = half(left)
+    img[h:] = half(right)
+    return img
+
