@@ -416,7 +416,7 @@ class Engine:
         if self._backend == "torch":
             b = self._tbuf
             b.zero_()
-            b.index_add_(0, self._dst_t, self._wp_t * self._sgn_t * self._act_t[self._src_t])
+            b.index_add_(0, self._dst_t, self._wp_t * self._act_t[self._src_t])
             b.add_(self._ext_t)
             if self._bias_t is not None:
                 b.add_(self._bias_t)
@@ -430,7 +430,7 @@ class Engine:
                 b = torch.round(b / self.cfg.quant) * self.cfg.quant
             self.last_drive = b
             return b
-        d = np.bincount(self.dst, weights=self.wp * self.sgn * self.act[self.src],
+        d = np.bincount(self.dst, weights=self.wp * self.act[self.src],
                         minlength=self._n).astype(np.float32)
         d += self.ext
         d += self.bias
