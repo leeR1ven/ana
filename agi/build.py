@@ -555,7 +555,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         brain.time_ring = TimeRing(ids["time"])     # 海马体时间环
         if spec.hippo_bind:
             from .hippocampus import HippoBinder
-            brain.binder = HippoBinder(eng, pfc_all, brain.time_ring)
+            # 海马体绑"感觉内容"，不绑前额叶（前额叶不该与海马体相连）
+            _sens = [L.ids for name, L in layers.items() if name.endswith(".L5")]
+            brain.binder = HippoBinder(eng, np.concatenate(_sens), brain.time_ring)
     if spec.threshold_theta <= 0:
         calibrate_layers(brain)   # 阈值模式下门槛由权重相对阈值定，不再用分位标定
     if spec.pfc_filter:

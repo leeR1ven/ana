@@ -52,7 +52,7 @@ class HippoBinder:
     def __init__(self, engine, pfc_ids, ring, group_in: int = 63, group_out: int = 64,
                  lr: float = 1.0, cap: int = 256, w_max: float = 1.0,
                  decay: float = 0.99, decay_every: int = 10, min_w: float = 0.05,
-                 seed: int = 5):
+                 strength: float = 3.0, seed: int = 5):
         # 时间绑定是**短期记忆**：写得快（lr≈1，一次就到目标）、忘得快（decay + 删弱边）。
         # 这和皮层/PFC 的长期连接相反（那边是凹增长、难改、不衰减）。
         self.eng = engine
@@ -61,6 +61,7 @@ class HippoBinder:
         self.g_in, self.g_out = group_in, group_out
         self.lr, self.cap, self.w_max = lr, int(cap), w_max
         self.decay, self.decay_every, self.min_w = decay, max(1, int(decay_every)), min_w
+        self.strength = strength      # 时间→内容的边要够强才推得亮（感觉层门槛较高）
         self.rng = np.random.default_rng(seed)
         self.enc: dict[int, float] = {}     # pfc -> time 的权重
         self.dec: dict[int, float] = {}     # time -> pfc 的权重
@@ -93,24 +94,20 @@ class HippoBinder:
                         d[k] = v
 
     def flush(self) -> int:
-        """把攒下的连接写进引擎（先清掉旧的，再整体重写）。"""
-        if not self.enc:
+        """把攒下的连接写进引擎（先清掉旧的，再整体重写）。
+
+        只写"时间→内容"这一向：反方向会让前额叶的码点亮一串时间格、再反推回来，
+        造成大面积扩散（实测码从 1,223 涨到 10,190）。"内容→时间"存字典即可。
+        """
+        if not self.dec:
             return 0
-        for g, d in ((self.g_in, self.enc), (self.g_out, self.dec)):
-            old = self.eng.group == g
-            if old.any():
-                self.eng.drop_edges(old)
-        n = 0
-        for g, d in ((self.g_in, self.enc), (self.g_out, self.dec)):
-            keys = np.fromiter(d.keys(), np.int64, len(d))
-            vals = np.fromiter(d.values(), np.float32, len(d))
-            if g == self.g_in:
-                src, dst = (keys // self.ring.n).astype(np.int32), (keys % self.ring.n)
-                dst = self.ring.ids[dst]
-            else:
-                src = self.ring.ids[(keys // 10_000_000).astype(np.int64)]
-                dst = (keys % 10_000_000).astype(np.int32)
-            self.eng.add_edges(src, dst, vals, group=g)
-            n += len(keys)
+        old = self.eng.group == self.g_out
+        if old.any():
+            self.eng.drop_edges(old)
+        keys = np.fromiter(self.dec.keys(), np.int64, len(self.dec))
+        vals = np.fromiter(self.dec.values(), np.float32, len(self.dec))
+        src = self.ring.ids[(keys // 10_000_000).astype(np.int64)]
+        dst = (keys % 10_000_000).astype(np.int32)
+        self.eng.add_edges(src, dst, (vals * self.strength).astype(np.float32), group=self.g_out)
         self.eng.rebuild_backend()
-        return n
+        return len(keys)
