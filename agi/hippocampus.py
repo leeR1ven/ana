@@ -50,7 +50,7 @@ class HippoBinder:
     """
 
     def __init__(self, engine, pfc_ids, ring, group_in: int = 63, group_out: int = 64,
-                 lr: float = 1.0, cap: int = 256, w_max: float = 1.0,
+                 lr: float = 1.0, cap: int = 4096, w_max: float = 1.0,
                  decay: float = 0.99, decay_every: int = 10, min_w: float = 0.05,
                  strength: float = 3.0, region_strength: dict | None = None,
                  seed: int = 5):
