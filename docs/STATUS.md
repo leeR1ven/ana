@@ -1174,3 +1174,21 @@ gait, walk0, turn1, turn2, orbit, tilt, follow, gaze
 - `getup2`、`reach`、`orbit` 仍未通过（起身、够高、追绕圈）；
 - 36 项技能只重训/核验了 10 项，其余未用新判据复核；
 - 海马体赫布记忆（一次配对 0.403→0.938）已成立，但**未接进动作回路**。
+
+### 通宵运行中体检（2026-10-23 00:22 起）
+
+新增 `experiments/p47_morning.py`：对 champion 跑 **20 项**技能，输出可贴进报告的表。
+
+首次结果：**13/20 通过**
+
+```
+✓ gait, walk0, walk2, walk4, turn1, turn2, turn3, reach, orbit,
+  follow, gaze, biped, lift
+✗ getup0, getup2, tilt, back, obstacle, robust, recover
+```
+
+**说明**：
+- `walk0/2/4` 位移 **0.989 米**（站得稳、走得远）；
+- 三项 `turn` 全过（转向能力稳定）；
+- `reach`（够高处）、`orbit`（追绕圈）、`biped`（抬身）也过；
+- 未过的集中在**起身**（getup0/2、recover）、**避障**（obstacle）、**抗扰**（robust）、**后退**（back）、`tilt`。
