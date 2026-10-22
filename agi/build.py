@@ -806,6 +806,13 @@ def _calibrate_by_theta(brain: "Brain", spec) -> None:
                 eng.set_thr(i, thr=(th * mass[i]).astype(np.float32),
                             soft=(so * mass[i]).astype(np.float32))
         _run()
+    # 中继也要有门槛：否则它"全有全无"，下游永远拿不到中间值，θ 形同虚设
+    _rel = brain.ids.get("relay", {})
+    if _rel:
+        rel = np.concatenate([np.asarray(v).ravel() for v in _rel.values()])
+        eng.set_thr(rel, thr=(0.5 * mass[rel]).astype(np.float32),
+                    soft=(0.02 * mass[rel]).astype(np.float32))
+        _run()
     i = brain.pfc_ids
     eng.set_thr(i, thr=(th * mass[i]).astype(np.float32),
                 soft=(so * mass[i]).astype(np.float32))
