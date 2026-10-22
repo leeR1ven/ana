@@ -1103,3 +1103,16 @@ def _ball_xy(sp, x_norm, y_norm, size=0.18):
                       _blob(px, float(np.clip(x_norm, 0.05, 0.95)),
                             float(np.clip(y_norm, 0.05, 0.95)), size, (0.95, 0.2, 0.1)))
 
+def _hebb_step(eng, group=90, lr=0.05):
+    """海马体那组边做一次共激活增强（赫布）：一起亮的 src/dst 权重上调。"""
+    m = np.asarray(eng.group) == group
+    if not m.any():
+        return 0
+    a = np.asarray(eng.act)
+    pre = a[np.asarray(eng.src)[m]]
+    post = a[np.asarray(eng.dst)[m]]
+    w = np.asarray(eng.wp)[m]
+    new = np.minimum(1.0, w + lr * pre * post * (1.0 - w))
+    eng.wp[m] = new
+    return int((new > w + 1e-6).sum())
+
