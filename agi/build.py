@@ -107,6 +107,16 @@ class Brain:
         return np.array([int((a[self.motor["force"][i]] > 0.35).sum())
                          for i in range(self.spec.n_muscle)], np.int16)
 
+    def force_mean(self) -> np.ndarray:
+        """每块肌肉的连续出力（档位激活的平均值，而不是"亮了几档"）。
+
+        "计数"会把时间结构抹平：只要每拍都有三四档亮，计数就恒定；
+        连续均值保留相位信息。
+        """
+        a = self.engine.act_np
+        return np.array([float(a[self.motor["force"][i]].mean())
+                         for i in range(self.spec.n_muscle)], np.float32)
+
     def pfc_code(self, thr: float = 0.35) -> np.ndarray:
         a = self.engine.act_np
         return self.pfc_ids[a[self.pfc_ids] > thr].astype(np.int32)
@@ -512,8 +522,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             nxt = (i + 1) % _cpg
             eng.connect(np.array([cpg[nxt]], np.int32), np.array([cpg[i]], np.int32),
                         np.array([2.0], np.float32))          # 环上强兴奋
+            _inh = float(getattr(spec, "cpg_inh", 1.4))
             eng.connect(np.array([gin[0]], np.int32), np.array([cpg[i]], np.int32),
-                        np.array([1.4], np.float32))          # 全局抑制
+                        np.array([_inh], np.float32))         # 全局抑制（太强会把行波掐断）
             eng.connect(np.array([cpg[i]], np.int32), np.array([gin[0]], np.int32),
                         np.array([0.5], np.float32))          # 驱动抑制
         # 基础张力：从运动前额叶取一点持续驱动，环才不会停在"全灭"
