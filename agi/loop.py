@@ -80,6 +80,10 @@ class Cortex:
         self.trace = Trace() if trace else None
         self.plastic = plastic if plastic is not None else PlasticRule()
         self.last_plastic = dict(edges=0, grown=0, strengthened=0, pruned=0)
+        self.shortcuts = None
+        if getattr(self.spec, "region_shortcut", False):
+            from .shortcuts import RegionShortcuts
+            self.shortcuts = RegionShortcuts(brain.engine)
         self.t = 0
 
     # ------------------------------------------------------------ 一拍
@@ -102,6 +106,13 @@ class Cortex:
             binder.step(_tgt[_a > 0.5])
             if binder.t % max(1, int(sp.hippo_flush_every)) == 0:
                 binder.flush()
+        if self.shortcuts is not None:
+            _L5 = [L.ids for name, L in self.brain.layers.items()
+                   if name.endswith(".L5")]
+            _a = np.asarray(self.engine.act)
+            self.shortcuts.step([int(i) for ids in _L5 for i in ids[_a[ids] > 0.5]])
+            if self.shortcuts.t % 50 == 0:
+                self.shortcuts.flush()
         t2 = time.perf_counter()
         forces = self.brain.forces()
         counts = self.brain.force_counts()
