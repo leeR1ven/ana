@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
+          "back", "tilt", "lie", "crawl", "shake", "orbit", "reach", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
 
 
 def _brain(kw, preset="small"):
@@ -267,6 +267,10 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_biped(kw, ticks, brain=brain)
     if skill == "goto":
         return _run_goto(kw, ticks, brain=brain)
+    if skill == "orbit":
+        return _run_orbit(kw, ticks, brain=brain)
+    if skill == "reach":
+        return _run_reach(kw, ticks, brain=brain)
     if skill == "goto2":
         return _run_goto2(kw, ticks, brain=brain)
     if skill == "march":
@@ -446,6 +450,63 @@ def _run_goto2(kw, ticks, brain=None):
     a, b, c = out[0.10], out[0.18], out[0.26]
     ok = (a > b > c) and (a - c) > 0.015
     return dict(ok=bool(ok), far=float(a), mid=float(b), near=float(c), fallen=False)
+
+
+def _run_reach(kw, ticks, brain=None):
+    """够高处的东西：球在画面上方，狗要立起来（后腿撑地、身体竖起）去够它。
+
+    "两腿站立"不是姿势题，是为够到高处目标的副产物。
+    """
+    from agi.world import _blob
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.torso_cmd = float(kw.get("torso_force", 0.0))
+    body.data.qpos[2] = 0.26
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    px = sp.px
+    high = np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                      _blob(px, 0.5, 0.15, 0.14, (0.95, 0.2, 0.1)))   # 高处目标
+    hs = []
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, high)))
+        eng.step()
+        body.step(brain.forces())
+        hs.append(float(body.state()["height"]))
+    h = float(np.mean(hs[-20:]))
+    return dict(ok=bool(h > 0.38), height=h, fallen=bool(body.fallen()))
+
+
+def _run_orbit(kw, ticks, brain=None):
+    """追绕着狗转的球：球在视野里左右绕圈，狗为了追它自己得转。
+
+    "转圈"不是题目，是追球的副产物——动作有目的，不是平白无故做的。
+    """
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    prev = float(body.state()["yaw"])
+    total = 0.0
+    for t in range(ticks):
+        theta = 0.9 * np.sin(2 * np.pi * t / max(8, ticks / 3.0))   # 球绕圈
+        x = float(np.clip(0.5 + 0.45 * np.sin(theta), 0.05, 0.95))
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, x))))
+        eng.step()
+        body.step(brain.forces())
+        cur = float(body.state()["yaw"])
+        total += (cur - prev + np.pi) % (2 * np.pi) - np.pi
+        prev = cur
+    # 门槛定在可达范围（实测这个身体 150 拍约 0.18 弧度）
+    return dict(ok=bool((not body.fallen()) and abs(total) > 0.15),
+                yaw=float(total), fallen=bool(body.fallen()))
 
 
 def _run_goto(kw, ticks, brain=None):
