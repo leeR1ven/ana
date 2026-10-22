@@ -91,9 +91,11 @@ def _wire_wall(brain, kw):
     dst = np.tile(wid, len(pick)).astype(np.int32)
     wgt = float(kw.get("wall_inh_in", 1.0))
     eng.add_edges(src, dst, np.full(len(src), wgt, np.float32), group=81)
-    # 入边改过之后必须重算阈值：thr_frac 是按"当前入边总量"定的，
-    # 沿用旧阈值会导致：无墙时也有一点点drive就越线 => 抑制常开。
-    eng.set_thr(wid, thr_frac=float(kw.get("wall_inh_thr", 0.30)), soft_frac=0.20)
+    # 用绝对阈值：蓝特异单元有墙时约 0.7 亮、无墙时约 0，
+    # 所以把门槛设在"三成亮"处，就能把两种情形干净分开。
+    n_each = max(1, len(pick))
+    eng.set_thr(wid, thr=np.full(len(wid), 0.30 * wgt * n_each, np.float32),
+                soft=np.full(len(wid), 0.10 * wgt * n_each, np.float32))
     eng.rebuild_backend()
 
 
