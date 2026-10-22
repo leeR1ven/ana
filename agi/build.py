@@ -494,6 +494,25 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                                    dtype=np.float32))).astype(np.float32)
         eng.set_thr(f, thr=thr, soft=np.full(spec.n_force, 0.6, np.float32))
         mforce[m] = f
+    # 触觉 → 运动直连（脊髓级反射）：第 i 个触觉通道连到第 i 条腿的抬起类肌肉。
+    # 这样"碰到哪条腿，哪条腿抬起来"是结构里长出来的，不用在任务里手写反射。
+    if getattr(spec, "touch_reflex", False):
+        lay = layout
+        if lay and "touch" in lay:
+            a_t, b_t = int(lay["touch"][0]), int(lay["touch"][1])
+            n_lv = int(spec.n_level)
+            ch = (b_t - a_t) // (2 * n_lv)
+            n_leg = max(1, min(ch, spec.n_muscle // 3))
+            for leg in range(n_leg):
+                base = a_t + leg * 2 * n_lv        # 该通道的正温度计格
+                src = np.arange(base, base + n_lv, dtype=np.int32)
+                for j in (1, 2):                   # 大腿、膝：抬腿用
+                    m = leg * 3 + j
+                    if m >= spec.n_muscle:
+                        continue
+                    dst = np.repeat(np.asarray(mforce[m], np.int32), len(src))
+                    s2 = np.tile(src, len(mforce[m]))
+                    eng.connect(dst, s2, np.full(len(dst), 0.25, np.float32))
     # 视觉 → 运动直连（可选）：绕过前额叶。
     # 前额叶靠不住永久记忆，而"看到东西就往哪边走"这类映射更像固化的通路。
     _vm = int(getattr(spec, "vision_motor", 0))
