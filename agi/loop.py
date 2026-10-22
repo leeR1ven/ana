@@ -95,6 +95,11 @@ class Cortex:
         t1 = time.perf_counter()
         for _ in range(max(1, int(sp.substeps))):
             self.engine.step()
+        binder = getattr(self.brain, "binder", None)
+        if binder is not None:
+            binder.step(self.brain.pfc_code())
+            if binder.t % max(1, int(sp.hippo_flush_every)) == 0:
+                binder.flush()
         t2 = time.perf_counter()
         forces = self.brain.forces()
         counts = self.brain.force_counts()

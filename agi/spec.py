@@ -93,6 +93,8 @@ class Spec:
     # 区与区之间的直连：每对相邻区两个方向各这么多条，出生固定、不参与学习
     region_links: int = 64
     n_time: int = 512                             # 海马体时间环的格子数（0 = 不加）
+    hippo_bind: bool = True                       # 每拍把前额叶活动绑到当前时间格上
+    hippo_flush_every: int = 50                   # 多久把绑定写进引擎一次
     # 回程闸门：每拍只让前额叶最强的几条信号通过（回程随思考焦点移动）
     return_gate: int = 32
     return_gate_k: int = 6
