@@ -51,6 +51,10 @@ def _work(args):
         score -= 1.0
     if not ok:
         score -= 0.2
+    # 姿态高度：正常行走应接近 0.27 米。趴着滑（0.15）或站太高（0.34+）都扣分，
+    # 否则演化会选出"低姿滑行"——指标过关但画面难看。
+    hm = float(r.get("hmean", 0.27) or 0.27)
+    score -= 2.0 * abs(hm - 0.27)
     return kw, score, r
 
 

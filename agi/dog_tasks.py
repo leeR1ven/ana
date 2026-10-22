@@ -517,7 +517,8 @@ def _run_gait(kw, ticks, brain=None):
     hi = max(hs)
     ok = (hi < 0.45) and (diag < 0.30) and (amp > 8.0) and (dx > 0.05) and swing_ok
     return dict(ok=bool(ok), dx=dx, maxh=float(hi), diag=float(diag), amp=amp,
-                swing=float((stance < 0.95).sum()), fallen=bool(body.fallen()))
+                hmean=float(np.mean(hs)), swing=float((stance < 0.95).sum()),
+                fallen=bool(body.fallen()))
 
 
 def _run_reach(kw, ticks, brain=None):
