@@ -84,27 +84,71 @@ def score_spec(kw, preset="small", seed=0):
     acts = {name: _run(eng, enc, obs) for name, obs in cases}
     base = acts["base"]
     passed, total = 0, 0
-    deep = [k for k in b.layers if k.endswith(".L4")]
     for name, _ in cases[1:]:
         a1 = acts[name]
         region = name.rstrip("0123456789")
-        tgt = [k for k in deep if k.startswith(region)]
-        total += 1
-        if tgt:
-            L = b.layers[tgt[0]]
-            if np.abs(a1[L.ids] - base[L.ids]).max() > 1e-4:
-                passed += 1
-        else:                       # 没有对应深层就只要任何变化
-            if np.abs(a1 - base).max() > 1e-4:
+        # 每个小测同时看 L2 和 L4：两道独立的小测（"传得进"和"传得深"）
+        for depth in (".L2", ".L4"):
+            key = f"{region}{depth}"
+            L = b.layers.get(key)
+            total += 1
+            if L is not None:
+                if np.abs(a1[L.ids] - base[L.ids]).max() > 1e-4:
+                    passed += 1
+            elif np.abs(a1 - base).max() > 1e-4:
                 passed += 1
     return passed, total, time.perf_counter() - t0
+
+
+def load_best(path="sweep_best.json"):
+    import json
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def save_best(kw, score, path="sweep_best.json"):
+    import json
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"score": score, **kw}, f, ensure_ascii=False, indent=2)
+
+
+def refine(base, n=60, preset="small", step=2, seed=1):
+    """以已有最优为种子，在其附近抖动，找更好的。"""
+    rng = np.random.default_rng(seed)
+    best = dict(base)
+    p, t, _ = score_spec({k: best[k] for k in ("region_links", "n_time", "k_near")}, preset)
+    best_score = p / max(1, t)
+    print(f"起点 {p}/{t} = {best_score:.2f} {best}")
+    ranges = {"region_links": (0, 128), "n_time": (64, 1024), "k_near": (4, 24)}
+    for i in range(n):
+        kw = dict(best)
+        for k, (lo, hi) in ranges.items():
+            kw[k] = int(np.clip(kw[k] + int(rng.integers(-step, step + 1)), lo, hi))
+        p, t, dt = score_spec({k: kw[k] for k in ranges}, preset)
+        s = p / max(1, t)
+        if s > best_score:
+            best, best_score = dict(kw), s
+            print(f"  #{i+1} 新高 {p}/{t} = {s:.2f} {best}")
+        elif (i + 1) % 10 == 0:
+            print(f"  #{i+1} 当前最好 {best_score:.2f}")
+    print(f"最好 {best_score:.2f} {best}")
+    return best, best_score
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=5)
     ap.add_argument("--preset", default="small")
+    ap.add_argument("--refine", action="store_true")
     a = ap.parse_args(argv)
+    if a.refine:
+        base = load_best() or {"region_links": 5, "n_time": 136, "k_near": 4}
+        best, s = refine(base, a.n, a.preset)
+        save_best({k: best[k] for k in ("region_links", "n_time", "k_near")}, s)
+        return 0
     rng = np.random.default_rng(0)
     rows = []
     for i in range(a.n):
