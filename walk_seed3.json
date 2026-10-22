@@ -1,0 +1,17 @@
+{
+  "dx": 0.051800003339049376,
+  "fallen": false,
+  "kw": {
+    "seed": 476459,
+    "k_near": 4,
+    "region_links": 10,
+    "w_lo": 0.1257539291248467,
+    "w_hi": 0.3082585524926917,
+    "posture_offset": 0.35,
+    "clock_motor": 0.1,
+    "torso_force": 0.8,
+    "wall_inh": true,
+    "wall_inh_gain": 1.0,
+    "wall_inh_in": 0.5
+  }
+}

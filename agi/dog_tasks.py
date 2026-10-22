@@ -60,43 +60,32 @@ def _wire_wall(brain, kw):
     vis = np.asarray(brain.layers["vision.L5"].ids, dtype=np.int64)
     px = sp.px
 
-    eng.rebuild_backend()          # 量活性前必须先建好计算图，否则读到的 act 不可信
-    BLUE = np.array([0.1, 0.2, 0.95], np.float32)
-
-    def act_of(img, ticks=12):
-        acc = None
-        for _ in range(ticks):
-            eng.clear_external()
-            eng.set_input(brain.encoder.encode(_obs(sp, img)))
-            eng.step()
-            a = np.asarray(eng.act)[vis].copy()
-            acc = a if acc is None else acc + a
-        return acc / ticks
-
-    ball_img = _ball(sp, 0.5)
-    wall_img = np.full((px, px, 3), 0.05, np.float32)
-    wall_img[px // 2:, px // 3: 2 * px // 3] = BLUE
-
-    a_ball = act_of(ball_img)
-    a_wall = act_of(wall_img)
-    sel = np.where((a_wall > 0.4) & (a_ball < 0.15))[0]
-    if len(sel) < 8:
-        sel = np.argsort(a_wall - a_ball)[-24:]
-    sel = sel[np.argsort(a_wall[sel])[-64:]]
-    pick = vis[sel]
-
+    # 直接接"蓝色通道、视野下方中央"的输入细胞：
+    # 视觉是逐通道温度计，蓝墙只在蓝色通道上亮，红球不会。
+    lay = brain.encoder.layout["vision"]
+    a0, b0 = int(lay[0]), int(lay[1])
+    n_lv = int(brain.spec.n_level)
+    ch = (b0 - a0) // (2 * n_lv)
+    cols = ch // 3
+    px = int(round(cols ** 0.5))
+    ids = []
+    for y in range(px // 2, px):
+        for x in range(px // 3, max(px // 3 + 1, 2 * px // 3)):
+            j = (y * px + x) * 3 + 2          # 蓝通道
+            base = a0 + j * 2 * n_lv
+            ids.extend(range(base, base + n_lv))   # 正的温度计格
+    ids = np.asarray(ids, np.int64)
+    if len(ids) == 0:
+        return
     m = np.isin(eng.dst, wid)
-    eng.w[m] = 0.0                     # 旧的按位置输入的边作废
+    eng.w[m] = 0.0
     eng.wp[m] = 0.0
-    src = np.repeat(pick.astype(np.int32), len(wid))
-    dst = np.tile(wid, len(pick)).astype(np.int32)
-    wgt = float(kw.get("wall_inh_in", 1.0))
-    eng.add_edges(src, dst, np.full(len(src), wgt, np.float32), group=81)
-    # 用绝对阈值：蓝特异单元有墙时约 0.7 亮、无墙时约 0，
-    # 所以把门槛设在"三成亮"处，就能把两种情形干净分开。
-    n_each = max(1, len(pick))
-    eng.set_thr(wid, thr=np.full(len(wid), 0.30 * wgt * n_each, np.float32),
-                soft=np.full(len(wid), 0.10 * wgt * n_each, np.float32))
+    src = np.repeat(ids.astype(np.int32), len(wid))
+    dst = np.tile(wid, len(ids)).astype(np.int32)
+    wgt = float(kw.get("wall_inh_in", 0.5))
+    eng.add_edges(src, dst, np.full(len(src), wgt, np.float32), group=83)
+    thr = np.full(len(wid), 0.35 * wgt * len(ids), np.float32)
+    eng.set_thr(wid, thr=thr, soft=(thr * 0.3).astype(np.float32))
     eng.rebuild_backend()
 
 
