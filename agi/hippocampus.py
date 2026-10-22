@@ -40,3 +40,63 @@ class TimeRing:
 
     def __len__(self) -> int:
         return self.n
+
+
+class HippoBinder:
+    """特征 ↔ 时间 的绑定：某一刻亮着的前额叶单元，和那一刻的时间神经元互相连。
+
+    这正是 born-wired-cortex 的做法（视觉/听觉/运动记忆都是"特征↔时间"双向连接）。
+    权重按共现次数凹增长，用得多的变难改（固化）；每 flush_every 拍写进引擎。
+    """
+
+    def __init__(self, engine, pfc_ids, ring, group_in: int = 63, group_out: int = 64,
+                 lr: float = 0.05, cap: int = 256, w_max: float = 1.0, seed: int = 5):
+        self.eng = engine
+        self.pfc = np.asarray(pfc_ids, np.int64)
+        self.ring = ring
+        self.g_in, self.g_out = group_in, group_out
+        self.lr, self.cap, self.w_max = lr, int(cap), w_max
+        self.rng = np.random.default_rng(seed)
+        self.enc: dict[int, float] = {}     # pfc -> time 的权重
+        self.dec: dict[int, float] = {}     # time -> pfc 的权重
+        self.t = 0
+
+    def _grow(self, d: dict, k: int) -> None:
+        w = d.get(k, 0.0)
+        d[k] = w + self.lr * max(0.0, 1.0 - w / self.w_max)
+
+    def step(self, active_pfc) -> None:
+        """每拍调用：把当前前额叶活动绑到当前时间格上。"""
+        act = np.asarray(active_pfc, np.int64)
+        if len(act) == 0:
+            return
+        if len(act) > self.cap:
+            act = act[self.rng.choice(len(act), self.cap, replace=False)]
+        t = (self.ring.t // self.ring.ticks_per_slot) % self.ring.n   # 本地格号（不是全局编号）
+        for p in act.tolist():
+            self._grow(self.enc, p * self.ring.n + t)     # 特征 → 时间
+            self._grow(self.dec, t * 100000 + p)          # 时间 → 特征
+        self.t += 1
+
+    def flush(self) -> int:
+        """把攒下的连接写进引擎（先清掉旧的，再整体重写）。"""
+        if not self.enc:
+            return 0
+        for g, d in ((self.g_in, self.enc), (self.g_out, self.dec)):
+            old = self.eng.group == g
+            if old.any():
+                self.eng.drop_edges(old)
+        n = 0
+        for g, d in ((self.g_in, self.enc), (self.g_out, self.dec)):
+            keys = np.fromiter(d.keys(), np.int64, len(d))
+            vals = np.fromiter(d.values(), np.float32, len(d))
+            if g == self.g_in:
+                src, dst = (keys // self.ring.n).astype(np.int32), (keys % self.ring.n)
+                dst = self.ring.ids[dst]
+            else:
+                src = self.ring.ids[(keys // 100000).astype(np.int64)]
+                dst = (keys % 100000).astype(np.int32)
+            self.eng.add_edges(src, dst, vals, group=g)
+            n += len(keys)
+        self.eng.rebuild_backend()
+        return n
