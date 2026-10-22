@@ -194,7 +194,8 @@ def _(h):
 
 @case("记忆", "多段顺序")
 def _(h):
-    imgs = {1: scene(h.px, 0.35, 0.5), 2: scene(h.px, seed=4), 3: scene(h.px, 0.65, 0.5)}
+    # 三个画面的两两重合都 ≤0.11（实测），这题才公平
+    imgs = {1: scene(h.px, seed=4), 2: scene(h.px, 0.5, 0.5), 3: scene(h.px, seed=9)}
     co = Consolidator(h.eng, lr=1.0, cap=32)
     codes = {}
     for _ in range(10):
