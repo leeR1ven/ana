@@ -55,7 +55,9 @@ def measure(h, seed=0):
     flat = h.px * h.px * 3
     for c in rng.choice(flat, min(12, flat), replace=False):
         img = np.full((h.px, h.px, 3), BASE, np.float32).reshape(-1)
-        img[c] = BUMP
+        # 一个小块（约 10% 通道）而不是单像素：实测单像素在 L2 就被稀释掉了
+        k = max(1, flat // 10)
+        img[c:c + k] = BUMP
         a1 = _run(h, _obs(h, vision=img.reshape(h.px, h.px, 3)))
         rows.append(_judge("vision", int(c), base, a1))
 
