@@ -3143,3 +3143,24 @@ detour ok False
 
 说明"第 i 条腿 = 第 3i..3i+2 条肌肉"这个假设**至少对部分腿不成立**。
 下一步必须先量清楚：给每一条肌肉单独加力，看它到底带动哪个关节/哪条腿（12 次单肌肉测试）。
+
+## 一百五十五、肌肉-腿对应关系：就是按腿分组的（2026-10-22）
+
+直接读模型关节：
+
+```
+joint 1  qposadr=7   FL_hip     joint 2  FL_thigh    joint 3  FL_calf
+joint 4  qposadr=10  FR_hip     joint 5  FR_thigh    joint 6  FR_calf
+joint 7  qposadr=13  RL_hip     joint 8  RL_thigh    joint 9  RL_calf
+joint 10 qposadr=16  RR_hip     joint 11 RR_thigh    joint 12 RR_calf
+```
+
+**顺序确实是"按腿分组"**：FL[0-2]、FR[3-5]、RL[6-8]、RR[9-11]。
+肌肉 i ↔ 关节 i 是一一对应的（`target = q_stand + offset·forces`），所以
+"第 i 条腿 = 3i..3i+2 号肌肉"这个假设**是对的**。
+
+那为什么腿 2 测出来更差？因为判据用的是"该腿 vs 其他腿"的**角度差**，
+而抬一条腿会让机身倾斜、其他腿被动位移增大（实测其他腿 17.5° → 19.3°），
+把差值吃掉了。**判据被全身耦合污染，不是接线错。**
+
+**下一步**：判据改成"该腿关节角相对变化 > 阈值"（绝对量），不看与其他腿的差。
