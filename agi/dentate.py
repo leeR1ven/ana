@@ -19,20 +19,29 @@ def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
     """建一层扩维去相关单元，返回它们的编号。"""
     src = np.asarray(src_ids, np.int64)
     n = int(len(src) * factor)
-    ids = engine.grow_units(n, kind="pfc", region="time", depth=0,
-                            thr=0.0, soft=1.0,
-                            pos=np.stack([np.full(n, 0.97, np.float32),
-                                          np.linspace(0, 1, n, dtype=np.float32),
-                                          np.full(n, 0.5, np.float32)], 1))
+    pos = np.stack([np.full(n, 0.97, np.float32),
+                    np.linspace(0, 1, n, dtype=np.float32),
+                    np.full(n, 0.5, np.float32)], 1)
+    if getattr(engine, "_final", False):
+        ids = engine.grow_units(n, kind="pfc", region="time", depth=0,
+                                thr=0.0, soft=1.0, pos=pos)
+    else:
+        ids = engine.add_block(n, kind="pfc", region="time", depth=0,
+                               thr=0.0, soft=1.0, pos=pos)
     rng = np.random.default_rng(seed)
     # 每个扩维单元随机读 k_in 个感觉单元（权重 ~1/k_in）
     pick = src[rng.integers(0, len(src), size=(n, k_in))]
-    engine.add_edges(np.repeat(ids, k_in).astype(np.int32), pick.reshape(-1).astype(np.int32),
-                     np.full(n * k_in, 1.0 / k_in, np.float32), group=group)
+    _w = np.full(n * k_in, 1.0 / k_in, np.float32)
+    if getattr(engine, "_final", False):
+        engine.add_edges(np.repeat(ids, k_in).astype(np.int32),
+                         pick.reshape(-1).astype(np.int32), _w, group=group)
+    else:
+        engine.connect(np.repeat(ids, k_in), pick.reshape(-1), _w, group=group)
     engine.set_thr(ids, thr_frac=0.1, soft_frac=0.3)
     k = max(1, int(round(active_frac * n)))
     engine.register_topk(ids, k)          # 强抑制竞争：每拍只留最强 k 个
-    engine.rebuild_backend()
+    if getattr(engine, "_final", False):
+        engine.rebuild_backend()          # 构建期不用（finalize 时才统一建张量）
     return ids
 
 

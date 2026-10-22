@@ -533,6 +533,13 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                 eng.connect(pick_d, pick_s, rng.uniform(0.2, 0.3, n),
                             group=G.REGION_LINK)
 
+    # ---- 扩维去相关层（可选，仿齿状回）----
+    if getattr(spec, "dentate_factor", 0) > 1:
+        from .dentate import build_dentate
+        _src = np.concatenate([L.ids for name, L in layers.items()
+                               if name.endswith(".L5")])
+        ids["dentate"] = build_dentate(eng, _src, factor=int(spec.dentate_factor))
+
     # ---- 海马体时间环：固定长度、每拍恰好一个亮 ----
     if spec.n_time > 0:
         tt = eng.add_block(int(spec.n_time), kind="pfc", region="time", depth=0,
