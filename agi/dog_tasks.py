@@ -200,6 +200,7 @@ def _run_obstacle(kw, ticks, brain=None):
         body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
         body.mj.mj_forward(body.model, body.data)
         x0 = float(body.data.qpos[0])
+        fs = []
         for _ in range(ticks):
             img = _ball(sp, 0.5)
             if with_wall:
@@ -208,13 +209,16 @@ def _run_obstacle(kw, ticks, brain=None):
             eng.clear_external()
             eng.set_input(brain.encoder.encode(_obs(sp, img)))
             eng.step()
-            body.step(brain.forces())
-        return float(body.data.qpos[0]) - x0
+            f = brain.forces()
+            fs.append(float(np.mean(f)))
+            body.step(f)
+        return float(body.data.qpos[0]) - x0, float(np.mean(fs))
 
-    d0 = episode(False)
-    d1 = episode(True)
-    ok = abs(d1) < abs(d0) * 0.6 + 1e-6
-    return dict(ok=ok, dx_free=d0, dx_wall=d1, fallen=False)
+    d0, f0 = episode(False)
+    d1, f1 = episode(True)
+    # 判据改成"看见障碍就收力"——位移主要来自滑动，用它判测不出东西
+    ok = f1 < f0 * 0.75
+    return dict(ok=ok, dx_free=d0, dx_wall=d1, force_free=f0, force_wall=f1, fallen=False)
 
 def _run_march(kw, ticks, brain=None):
     """行进（画面交替）：左右两张图逐拍交替，看能不能持续前进。
