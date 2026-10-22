@@ -30,6 +30,7 @@ KNOBS = (
     ("region_links", 0, 128, 32),
     ("n_time", 64, 1024, 256),
     ("k_near", 4, 24, 2),
+    ("threshold_q", 60, 90, 5),        # 千分数：70 = 0.70（实测影响噪声鲁棒性）
 )
 
 
@@ -50,7 +51,10 @@ def mutate(kw, rng):
 
 
 def score(kw, seed=0):
-    """固定题库（快速子集）：感知三题 + 注视任务一题。"""
+    """固定题库（快速子集）：感知三题 + 噪声 + 注视任务。"""
+    kw = dict(kw)
+    if "threshold_q" in kw:                 # 千分数 → 比例
+        kw["threshold_q"] = float(kw["threshold_q"]) / 100.0
     try:
         sp = build_spec("full", seed=7 + seed, **kw)
         b = build(sp, verbose=False)
