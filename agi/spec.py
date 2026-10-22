@@ -74,6 +74,7 @@ class Spec:
     threshold_q: float = 0.70
     vision_motor: int = 0                         # 视觉→运动直连边数（绕过前额叶）
     wall_inh: bool = False                       # 墙抑制组（避障用，默认关）
+    wall_inh_thr: float = 0.30                     # 抑制组阈值（越高越挑）
     wall_inh_gain: float = 0.5                    # 抑制边权重
     motor_counted: bool = True                    # 运动前额叶是否用"计数型"（True=老行为）\n    motor_fan_in: int = 8                          # 运动前额叶每个单元接几个中继输入（视觉影响运动的关键）\n    w_lo: float = 0.05                            # 出生连接的权重下限（每个模型可以不同）
     w_hi: float = 0.20                            # 出生连接的权重上限

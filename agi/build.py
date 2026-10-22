@@ -517,7 +517,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             pv = _sample_no_replace(rng, vis5.ids, 16, 12)
             eng.connect(np.repeat(winh, 12), pv.reshape(-1),
                         rng.uniform(0.05, 0.15, 16 * 12), group=G.MOTOR_NON)
-            eng.set_thr(winh, thr_frac=0.30, soft_frac=0.35)
+            eng.set_thr(winh, thr_frac=float(getattr(spec, "wall_inh_thr", 0.30)),
+                        soft_frac=0.20)
             _winh_ids = winh
             wgt = float(getattr(spec, "wall_inh_gain", 0.5))
             for m in range(spec.n_muscle):
