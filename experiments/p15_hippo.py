@@ -1,5 +1,6 @@
+import os
 import sys
-sys.path.insert(0, "ana")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from agi import build_spec, build, Cortex
 from agi.hippocampus import HippoBinder
