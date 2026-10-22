@@ -86,7 +86,9 @@ class PlasticConfig:
     inh_max: float = 0.6
     fail_decay: float = 0.002
     inh_group: int = 41
-    inh_window: int = 3             # 目标最近几段稳定码里一次都没亮过，才算"真没被驱动"
+    inh_window: int = 3
+    trace_decay: float = 0.8        # 痕迹（资格迹）：最近的亮过会留下逐渐衰减的痕迹
+    trace_thr: float = 0.35         # 痕迹超过这个值算"最近亮过"
 
 
 class PlasticRule:
@@ -121,6 +123,7 @@ class PlasticRule:
         self._anti_batch: list[tuple[np.ndarray, np.ndarray]] = []
         self._hist_codes: list[np.ndarray] = []
         self._recent_any = np.zeros(0, bool)
+        self._trace = np.zeros(0, np.float32)   # 痕迹：最近亮过的程度
         self.t = 0
 
     # ------------------------------------------------------------ 主入口
@@ -132,7 +135,11 @@ class PlasticRule:
             np.asarray(prev_active, np.int64))
         if self._cnt_unit.size != engine.n:
             self._cnt_unit = np.zeros(engine.n, np.float32)
+        if self._trace.size != engine.n:
+            self._trace = np.zeros(engine.n, np.float32)
+        self._trace *= self.cfg.trace_decay          # 痕迹（资格迹）衰减
         if len(cur):
+            self._trace[cur] = 1.0
             np.add.at(self._cnt_unit, cur, 1.0)
         grown = strengthened = 0
         if self.cfg.settle_overlap > 0:
@@ -234,10 +241,10 @@ class PlasticRule:
             idx = np.flatnonzero(engine.group == self.cfg.group)
             if len(idx):
                 s, dd = engine.src[idx], engine.dst[idx]
-                ld = getattr(engine, "last_drive", None)
-                if ld is not None:
-                    ldv = ld if isinstance(ld, np.ndarray) else ld.detach().cpu().numpy()
-                    not_driven = ldv[dd] <= 0.0
+                tr = self._trace
+                if tr.size == engine.n:
+                    # 目标"最近没亮过"（痕迹低）才算真的没关系；痕迹高则可能是被名额挤掉
+                    not_driven = tr[dd] <= self.cfg.trace_thr
                 else:
                     not_driven = ~np.isin(dd, cur)
                 m = np.isin(s, pre) & not_driven
