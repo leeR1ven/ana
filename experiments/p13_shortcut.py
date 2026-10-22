@@ -75,6 +75,9 @@ def main() -> int:
         ctx.tick(obs([1, 2, 3, 2][(t // 20) % 4]), record=False)
 
     base = cue_and_measure(eng, l5_active(eng, va)[:40], au)
+    # 学习前先再喂几拍真实刺激，否则活动在上一步被清空了
+    for t in range(20):
+        ctx.tick(obs([1, 2, 3, 2][(t // 20) % 4]), record=False)
     rng = np.random.default_rng(3)
     n = learn_shortcuts(eng, va, au, rng)
     after = cue_and_measure(eng, l5_active(eng, va)[:40], au)
