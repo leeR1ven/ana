@@ -99,9 +99,29 @@ def main(argv=None) -> int:
         scale = 1.0 if g < a.gens // 2 else 0.5
         base = elite[0][0] if elite else seed
         cands = [mutate(base, rng, scale) for _ in range(a.pop)]
+        # 融合（参数平均）：不预设哪里好哪里差，先造出一大批后代，
+        # 让"选择"来决定谁好。融合孩子本身就是下一代候选，会继续被变异。
         if len(elite) >= 2:
-            for _ in range(4):
-                cands.append(fuse(elite[0][0], elite[1][0], rng))
+            n_fuse = max(6, a.pop // 2)
+            for i in range(n_fuse):
+                e1 = elite[i % len(elite)][0]
+                e2 = elite[(i + 1) % len(elite)][0]
+                child = fuse(e1, e2, rng)
+                # 轻度扰动：纯平均可能落在"死点"，加一点噪声更容易活
+                if rng.random() < 0.5:
+                    child = mutate(child, rng, 0.4)
+                cands.append(child)
+            # 多亲本融合：3~4 个精英一起平均（"集大成"）
+            if len(elite) >= 3:
+                for k in (3, 4):
+                    if len(elite) < k:
+                        continue
+                    for _ in range(3):
+                        pick = rng.choice(len(elite), k, replace=False)
+                        acc = dict(elite[int(pick[0])][0])
+                        for j in pick[1:]:
+                            acc = fuse(acc, elite[int(j)][0], rng)
+                        cands.append(mutate(acc, rng, 0.3))
         cands.extend(kw for kw, _, _ in elite)
         with ProcessPoolExecutor(max_workers=jobs) as ex:
             outs = list(ex.map(_work, [(k, skills, a.ticks) for k in cands]))
