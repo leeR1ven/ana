@@ -39,7 +39,55 @@ def _brain(kw, preset="small"):
             setattr(sp, k, v)
     brain = build(sp, verbose=False)
     _wire_clock(brain, kw)
+    _wire_wall(brain, kw)
     return sp, brain
+
+
+def _wire_wall(brain, kw):
+    """挑出"对蓝色障碍特异"的视觉单元，接到墙抑制组。
+
+    位置先验不行（实测无墙 0.22 / 有墙 0.26，分不开），必须按**实际响应**来挑：
+    跑一遍"蓝墙 vs 无墙"，取响应差最大的单元，再接抑制组。
+    """
+    if not kw.get("wall_inh"):
+        return
+    wid = brain.motor.get("wall_inh")
+    if wid is None:
+        return
+    wid = np.unique(np.asarray(wid, dtype=np.int64).ravel())
+    eng = brain.engine
+    sp = brain.spec
+    vis = np.asarray(brain.layers["vision.L5"].ids, dtype=np.int64)
+    px = sp.px
+
+    def act_of(with_wall):
+        acc = None
+        for t in range(12):
+            img = _ball(sp, 0.5)
+            if with_wall:
+                img = img.copy()
+                img[px // 2:, px // 3: 2 * px // 3] = np.array([0.1, 0.2, 0.95], np.float32)
+            eng.clear_external()
+            eng.set_input(brain.encoder.encode(_obs(sp, img)))
+            eng.step()
+            a = np.asarray(eng.act)[vis].copy()
+            acc = a if acc is None else acc + a
+        return acc / 12
+
+    a0 = act_of(False)
+    a1 = act_of(True)
+    # 用"有墙时熄灭"的单元（a0 高、a1 低）：它们直接兴奋力度细胞
+    # 有墙 -> 它们灭 -> 力度掉 -> 停下；无墙 -> 它们亮 -> 正常走
+    drop = a0 - a1
+    cand = np.where(a0 > 0.3)[0]
+    cand = cand[np.argsort(drop[cand])[-32:]] if len(cand) >= 4 else np.argsort(drop)[-32:]
+    pick = vis[cand]
+    force = np.concatenate([np.asarray(v).ravel() for v in brain.motor["force"].values()])
+    src = np.repeat(pick.astype(np.int32), len(force))
+    dst = np.tile(force.astype(np.int32), len(pick))
+    wgt = float(kw.get("wall_inh_in", 0.5))
+    eng.add_edges(src, dst, np.full(len(src), wgt, np.float32), group=82)
+    eng.rebuild_backend()
 
 
 def _wire_clock(brain, kw):
