@@ -2909,3 +2909,24 @@ b.index_add_(0, dst, self._wp_t * self._act_t[self._src_t])   # 只有 wp，没�
 **下一步该做的**（明确）：不要往 force 上加减，而是**用差异单元直接抑制运动前额叶 `mpfc`**
 （走路循环的源头）。之前 mpfc 抑制实测能把驱动从 0.11 压到 −2.17，说明这条路有效；
 现在只要把"有墙才触发"做对，就能实现"看到墙就打断走路"。
+
+## 一百四十四、演化 12 代结果：技能 10/13，位移最高 0.40（2026-10-22）
+
+```
+skills: walk0/1/2/3, walk_to_ball, getup0, follow, march, turn1, turn2  (10/13)
+best_by_skill:
+  walk0 0.363  walk1 0.390  walk2 0.397  walk3 0.393
+  walk_to_ball 0.391  march 0.402  turn1 0.377  turn2 0.366
+  getup0 0.155  follow 0.0
+best_kw: k_near 5, region_links 7, w 0.117~0.362,
+         motor_fan_in 5, posture_offset 0.6, clock_motor 0.299, torso_force 0.0
+```
+
+**关键**：
+- 位移从时钟刚接上时的 0.30 提到 **0.40**（`march` 最好），演化确实在推高位移；
+- `posture_offset` 被搜到 0.6（上限）、`clock_motor` 0.30——两个新参数都被用满，说明它们确实是有效维度；
+- `follow` 指标 0.0 但技能在清单里：这是"通过但没有数值"的情况（判据用的是差值），属正常；
+- 仍缺 `getup1`、`getup2`、`obstacle`。
+
+`getup0` 只有 0.155——**演化没找到增加躯干力矩的解**，因为 `best_kw` 里 `torso_force = 0.0`。
+这是下一步要处理的：`torso_force` 只在起身时生效，粒子里没有给它"正反馈"（起身高度不是总分的一部分）。
