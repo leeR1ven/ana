@@ -273,7 +273,7 @@ def test_consolidation_freezes():
                                          full_cross=100, min_change=0.0,
                                          flush_every=1, flush_edges=1000,
                                          consolidate=consolidate,
-                                         use_ref=2.0, freeze_at=5.0))
+                                         use_ref=2.0, long_term_at=5.0))
         for _ in range(40):
             rule.reinforce(eng, np.array([ids[0]]), np.array([ids[1]]))
             rule.flush(eng)
