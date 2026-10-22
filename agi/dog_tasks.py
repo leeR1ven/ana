@@ -128,6 +128,8 @@ def _wire_clock(brain, kw):
     if gain <= 0 or tr is None:
         return
     eng = brain.engine
+    period = float(kw.get("clock_period", 25.0))
+    tr.ticks_per_slot = max(1, int(round(len(np.asarray(tr.ids).ravel()) / max(4.0, period))))
     ring = np.asarray(tr.ids, dtype=np.int64).ravel()
     mpfc = np.asarray(brain.motor["mpfc"], dtype=np.int64).ravel()
     rng = np.random.default_rng(int(kw.get("seed", 0)) + 991)
@@ -143,13 +145,13 @@ def _wire_clock(brain, kw):
             leg = mus // 3
             ph = leg_phase[leg] + float(kw.get("clock_knee", 0.0)) * (1 if mus % 3 == 2 else 0)
             base = (ph * len(ring)) % len(ring)
-            slope = int(kw.get("clock_slope", 3))
+            # 每条肌肉接一个**相位窗口**：只接环上一小段（占 1/8 圈），
+            # 窗口起点按腿的相位偏移。接单格等于 512 拍才亮一次，不成节律。
+            width = max(2, int(len(ring) * float(kw.get("clock_window", 0.125))))
             for i in range(per):
                 unit = int(mpfc[min(n_mpfc - 1, mus * per + i)])
-                if rev:
-                    idx = int((base - i * slope) % len(ring))
-                else:
-                    idx = int((base + i * slope) % len(ring))
+                k2 = i % width
+                idx = int((base + (k2 if not rev else -k2)) % len(ring))
                 src.append(int(ring[idx]))
                 dst.append(unit)
                 w.append(gain)
