@@ -138,7 +138,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
     if skill in ("getup0", "getup1", "getup2", "getup"):
         h = float(np.mean(heights[-20:]))
         need = {"getup0": 0.15, "getup1": 0.18, "getup2": 0.22, "getup": 0.20}[skill]
-        return dict(ok=(not fallen) and h > need, height=h, fallen=fallen)
+        # 起身本来就是从"躺着"开始，用 fallen 判会永远不过——只看"起来多高"
+        return dict(ok=h > need, height=h, fallen=fallen)
     return dict(ok=False)
 
 
