@@ -387,7 +387,7 @@ def run_external(py=None):
         try:
             r = subprocess.run([py, "-X", "utf8"] + script.split(),
                                capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
-                               cwd=os.path.dirname(HERE))
+                               cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             hit = must in (r.stdout or "")
         except Exception:
             hit = False
