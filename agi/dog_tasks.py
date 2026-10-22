@@ -305,13 +305,15 @@ def _run_gaze(kw, ticks, brain=None):
     body.data.qpos[2] = 0.24
     body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
     body.mj.mj_forward(body.model, body.data)
+    # 眼动反射：把鲜艳目标拉到画面中心（像上丘反射，不需要学）
+    pan = 0.0
     center = 0.5
     for _ in range(ticks):
         f = brain.forces()
-        pan = float(np.clip(2.0 * float(np.mean(f)) - 1.0, -1.0, 1.0))
-        x = float(np.clip(0.90 - 0.45 * pan, 0.05, 0.95))
+        x = float(np.clip(0.90 + pan, 0.05, 0.95))
         img = _ball(sp, x)
         center = _red_center(img)
+        pan -= 0.35 * (center - 0.5)          # 往目标方向转
         eng.clear_external()
         eng.set_input(brain.encoder.encode(_obs(sp, img)))
         eng.step()
