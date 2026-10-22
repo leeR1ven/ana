@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
+          "back", "tilt", "lie", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
 
 
 def _brain(kw, preset="small"):
