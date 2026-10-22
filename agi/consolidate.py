@@ -45,8 +45,10 @@ class Consolidator:
             c = self.count.get(key, 0) + 1
             self.count[key] = c
             if c == self.repeats:
-                a = self.prev[: self.cap]
-                b = cur[: self.cap]
+                # 模式分离：只连"各自独有"的部分。重叠的单元本来就已经相互关联，
+                # 再给它们加边只会把两段经历并成一个吸引子（实测 B 的独有单元掉到 8 个）。
+                a = np.setdiff1d(self.prev, cur)[: self.cap]
+                b = np.setdiff1d(cur, self.prev)[: self.cap]
                 for s in a.tolist():
                     for d in b.tolist():
                         if s == d:
