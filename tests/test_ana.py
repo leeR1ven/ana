@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """不依赖 pytest 的自检：python tests/test_ana.py
 
 分五组：编码 / 引擎 / 架构不变量 / 联想生长 / 闭环。
@@ -92,9 +92,14 @@ def test_engine_topk_exact():
     for _ in range(12):
         eng.set_input(b.encoder.encode(sample_observation(b.spec, np.random.default_rng(1), 0)))
         eng.step()
+    theta_mode = float(getattr(b.spec, "threshold_theta", 0.0)) > 0
     for name, L in b.layers.items():
         n = int(eng.selected[L.ids].sum())
-        assert n == L.k, f"{name}: 被选中 {n} != top-k {L.k}"
+        if theta_mode:
+            # 阈值模式没有名额：只要求"稀疏但非空"
+            assert 0 < n < L.size, f"{name}: 阈值模式亮 {n} / {L.size}"
+        else:
+            assert n == L.k, f"{name}: 被选中 {n} != top-k {L.k}"
 
 
 def test_engine_gain_control():
