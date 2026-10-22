@@ -37,9 +37,7 @@ def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
                          pick.reshape(-1).astype(np.int32), _w, group=group)
     else:
         engine.connect(np.repeat(ids, k_in), pick.reshape(-1), _w, group=group)
-    engine.set_thr(ids, thr_frac=0.1, soft_frac=0.3)
-    k = max(1, int(round(active_frac * n)))
-    engine.register_topk(ids, k)          # 强抑制竞争：每拍只留最强 k 个
+    engine.set_thr(ids, thr_frac=0.4, soft_frac=0.2)   # 高门槛 = 天然稀疏，不再用名额
     if getattr(engine, "_final", False):
         engine.rebuild_backend()          # 构建期不用（finalize 时才统一建张量）
     return ids
