@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge")
+          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped")
 
 
 def _brain(kw, preset="small"):
@@ -207,6 +207,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_recover(kw, ticks, brain=brain)
     if skill == "verge":
         return _run_verge(kw, ticks, brain=brain)
+    if skill == "biped":
+        return _run_biped(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -357,6 +359,31 @@ def _balance_reflex(forces, roll, pitch, gain=0.8, thr=0.15):
         for leg in legs:
             f[leg * 3 + 2] = min(1.0, f[leg * 3 + 2] + gain * min(1.0, abs(pitch) / 0.8))
     return f
+
+
+def _run_biped(kw, ticks, brain=None):
+    """两腿站立：后腿撑地、身体立起来（高度升 + 抬头 pitch 明显）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.torso_cmd = float(kw.get("torso_force", 0.0))
+    body.data.qpos[2] = 0.26
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    hs, ps = [], []
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+        st = body.state()
+        hs.append(float(st["height"]))
+        ps.append(float(st["pitch"]))
+    h = float(np.mean(hs[-20:]))
+    p_ = float(np.mean(ps[-20:]))
+    # 判据定在"比站姿高一大截 + 明显抬头"（实测只有 tors​​o 拉满才够）
+    return dict(ok=bool(h > 0.40 and abs(p_) > 0.15), height=h, pitch=p_, fallen=bool(body.fallen()))
 
 
 def _run_verge(kw, ticks, brain=None):
