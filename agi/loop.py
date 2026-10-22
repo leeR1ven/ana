@@ -90,7 +90,11 @@ class Cortex:
         self.consolidator = None
         if getattr(self.spec, "long_term", False) and "dentate" in brain.ids:
             from .consolidate import Consolidator
-            self.consolidator = Consolidator(brain.engine)
+            # 分区遗忘：视觉记得久、触觉/本体/平衡忘得快
+            self.consolidator = Consolidator(
+                brain.engine,
+                region_decay={0: 0.999, 1: 0.997, 2: 0.99, 3: 0.985, 4: 0.98},
+                decay_every=200)
         self.t = 0
 
     # ------------------------------------------------------------ 一拍
