@@ -30,7 +30,7 @@ PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in",
           "wall_inh_gain")
 RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
           "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
-          "posture_offset": (0.12, 1.0), "clock_motor": (0.0, 0.6), "torso_force": (0.0, 1.0), "wall_inh_gain": (0.3, 2.0)}
+          "posture_offset": (0.12, 1.4), "clock_motor": (0.0, 0.9), "torso_force": (0.0, 1.0), "wall_inh_gain": (0.3, 2.0)}
 
 
 def random_kw(rng):
@@ -55,11 +55,11 @@ def mutate(kw, rng):
         lo, hi = RANGES[k]
         out[k] = float(np.clip(out.get(k, (lo + hi) / 2) * rng.uniform(0.8, 1.25), lo, hi))
     out["motor_fan_in"] = int(np.clip(out.get("motor_fan_in", 8) * rng.uniform(0.6, 1.7), 4, 64))
-    out["posture_offset"] = float(np.clip(out.get("posture_offset", 0.12) * rng.uniform(0.85, 1.25), 0.12, 1.0))
+    out["posture_offset"] = float(np.clip(out.get("posture_offset", 0.12) * rng.uniform(0.85, 1.25), 0.12, 1.4))
     if rng.random() < 0.15 or out.get("clock_motor", 0.0) == 0.0:
         out["clock_motor"] = float(np.clip(rng.uniform(0.0, 0.3), 0.0, 0.6))
     else:
-        out["clock_motor"] = float(np.clip(out["clock_motor"] * rng.uniform(0.8, 1.3), 0.0, 0.6))
+        out["clock_motor"] = float(np.clip(out["clock_motor"] * rng.uniform(0.8, 1.3), 0.0, 0.9))
     out["torso_force"] = float(np.clip(out.get("torso_force", 0.0) * rng.uniform(0.8, 1.25), 0.0, 1.0))
     out["wall_inh"] = True
     out["wall_inh_gain"] = float(np.clip(out.get("wall_inh_gain", 1.0) * rng.uniform(0.8, 1.25), 0.3, 2.0))
