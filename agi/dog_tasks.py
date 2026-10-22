@@ -27,12 +27,16 @@ SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk_to_ball",
 
 def _brain(kw, preset="small"):
     sp = build_spec(preset, seed=7 + int(kw.get("seed", 0)))
-    for k in ("k_near", "region_links", "n_time"):
-        if k in kw:
-            setattr(sp, k, int(kw[k]))
-    for k in ("w_lo", "w_hi"):
-        if k in kw:
-            setattr(sp, k, float(kw[k]))
+    # 凡是 spec 上有的字段，都按它的默认类型套用（以前只映射了少数几个，
+    # 导致 motor_fan_in / wall_inh 这类参数"传了却没生效"）。
+    for k, v in kw.items():
+        if k == "seed" or not hasattr(sp, k):
+            continue
+        cur = getattr(sp, k)
+        try:
+            setattr(sp, k, type(cur)(v))
+        except Exception:
+            setattr(sp, k, v)
     return sp, build(sp, verbose=False)
 
 

@@ -72,6 +72,8 @@ class Spec:
     # 每层门槛取"该层驱动"的哪个分位：越低越稳（噪声下不易翻档），实测 0.85→0.70
     # 让 3% 噪声下的码重合从 0.32 升到 0.92，同时异图分离反而更好（0.31→0.09）
     threshold_q: float = 0.70
+    wall_inh: bool = False                       # 墙抑制组（避障用，默认关）
+    wall_inh_gain: float = 0.5                    # 抑制边权重
     motor_counted: bool = True                    # 运动前额叶是否用"计数型"（True=老行为）\n    motor_fan_in: int = 8                          # 运动前额叶每个单元接几个中继输入（视觉影响运动的关键）\n    w_lo: float = 0.05                            # 出生连接的权重下限（每个模型可以不同）
     w_hi: float = 0.20                            # 出生连接的权重上限
     desaturate: bool = False                      # 去饱和：小测全通但记忆掉一题，待查后再默认开                   # 默认：权重相对阈值 + 逐级分位标定，不用 top-k

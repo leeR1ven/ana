@@ -494,6 +494,26 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                                    dtype=np.float32))).astype(np.float32)
         eng.set_thr(f, thr=thr, soft=np.full(spec.n_force, 0.6, np.float32))
         mforce[m] = f
+    # 墙抑制组（可选）：视觉 L5 → 抑制神经元 → 力度细胞。
+    # 引擎的符号规则是"源神经元是不是抑制型决定正负"，所以必须有一个抑制型中间组，
+    # 才能让"看到障碍"把力度压下去（而不是继续推高）。
+    if getattr(spec, "wall_inh", False):
+        vis5 = layers.get("vision.L5")
+        if vis5 is not None:
+            winh = eng.add_block(16, kind="motor_inh", region="motor", depth=6, inh=True,
+                                 thr=0.0, soft=1.0,
+                                 pos=_band_pos(geo, "motor", 16, rng, geo.x_motor_gate + 0.04))
+            pv = _sample_no_replace(rng, vis5.ids, 16, 12)
+            eng.connect(np.repeat(winh, 12), pv.reshape(-1),
+                        rng.uniform(0.05, 0.15, 16 * 12), group=G.MOTOR_NON)
+            eng.set_thr(winh, thr_frac=0.30, soft_frac=0.35)
+            wgt = float(getattr(spec, "wall_inh_gain", 0.5))
+            for m in range(spec.n_muscle):
+                f = mforce[m]
+                eng.connect(np.repeat(winh, spec.n_force), np.tile(f, 16),
+                            np.full(16 * spec.n_force, wgt, np.float32),
+                            group=G.MOTOR_BLOCK)
+
     # 门控：I（抑制）/ D（去抑制）
     nonmotor = np.concatenate([v for v in pfc_groups.values()])
     inh = eng.add_block(16, kind="motor_inh", region="motor", depth=6, inh=True,
