@@ -9,10 +9,15 @@ from __future__ import annotations
 import json
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
+# 模型路径：默认值指向 Windows，服务器上必须覆盖；这里自动选对，免得忘设环境变量
+if "ANA_GO2_XML" not in os.environ:
+    _linux = "/root/go2models/scene.xml"
+    if os.path.exists(_linux):
+        os.environ["ANA_GO2_XML"] = _linux
 
 SKILLS = ("gait", "walk0", "walk2", "walk4", "turn1", "turn2", "turn3",
           "getup0", "getup2", "reach", "orbit", "tilt", "follow", "gaze",
@@ -29,6 +34,8 @@ def _one(item):
     try:
         r = run_skill(kw, s, 120)
     except Exception:
+        import traceback
+        traceback.print_exc()
         return s, None
     return s, r
 
@@ -42,10 +49,13 @@ def main(argv=None) -> int:
     print("模型:", path)
 
     jobs = [(path, s) for s in SKILLS]
-    with ProcessPoolExecutor(max_workers=min(20, len(jobs))) as ex:
-        res = {}
-        for s, r in ex.map(_one, jobs):
-            res[s] = r
+    # 只在 4 个进程里跑：服务器被演化占满时，开 20 个会互相抢导致执行失败
+    # 顺序跑：多进程在服务器高负载下会整片失败（疑似 fork 后资源不足），
+    # 顺序执行慢一点（约 4 分钟）但结果可靠。
+    res = {}
+    for s in SKILLS:
+        name, r = _one((path, s))
+        res[name] = r
 
     print("\n%-9s %-4s %8s %8s %8s %8s %6s" %
           ("技能", "通过", "位移", "最高", "对角相关", "平均高", "摆动"))
