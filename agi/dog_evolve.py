@@ -22,7 +22,7 @@ sys.path.insert(0, ROOT)
 
 from agi.dog_tasks import SKILLS, run_skill   # noqa: E402
 
-PARAMS = ("k_near", "region_links", "w_lo", "w_hi")
+PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in")
 RANGES = {"k_near": (4, 24), "region_links": (0, 128),
           "w_lo": (0.02, 0.5), "w_hi": (0.3, 2.0)}
 
@@ -40,6 +40,7 @@ def mutate(kw, rng):
     out["seed"] = int(rng.integers(1, 10 ** 6))
     out["k_near"] = int(np.clip(out["k_near"] + rng.integers(-2, 3), 4, 24))
     out["region_links"] = int(np.clip(out["region_links"] + rng.integers(-16, 17), 0, 128))
+    out["motor_fan_in"] = int(np.clip(out.get("motor_fan_in", 8) * rng.uniform(0.6, 1.7), 4, 64))
     for k in ("w_lo", "w_hi"):
         lo, hi = RANGES[k]
         out[k] = float(np.clip(out[k] * rng.uniform(0.8, 1.25), lo, hi))
@@ -50,14 +51,34 @@ def fuse(a, b):
     """出生参数按位平均（seed 不融合）。"""
     out = {"seed": int(np.random.default_rng(0).integers(1, 10 ** 6))}
     for k in PARAMS:
-        out[k] = (a[k] + b[k]) / 2.0
+        va = a.get(k, b.get(k, RANGES.get(k, (0, 1))[0]))
+        vb = b.get(k, va)
+        out[k] = (va + vb) / 2.0
     out["k_near"] = int(round(out["k_near"]))
     out["region_links"] = int(round(out["region_links"]))
+    out["motor_fan_in"] = int(round(out.get("motor_fan_in", 8)))
     return out
 
 
-def evaluate(kw, skills=SKILLS, ticks=80):
-    """返回 {skill: (ok, metric)}。"""
+def _eval_one(args):
+    kw, skill, ticks = args
+    try:
+        r = run_skill(kw, skill, ticks)
+    except Exception as e:
+        r = {"ok": False, "err": f"{type(e).__name__}: {e}"}
+    metric = abs(r.get("dx", r.get("dyaw", r.get("height", 0.0))))
+    return skill, bool(r.get("ok")), float(metric)
+
+
+def evaluate(kw, skills=SKILLS, ticks=80, workers=1):
+    """返回 {skill: (ok, metric)}；workers>1 时把各技能丢进进程池并行跑。"""
+    if workers > 1 and len(skills) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        out = {}
+        with ProcessPoolExecutor(max_workers=min(workers, len(skills))) as ex:
+            for s, ok, m in ex.map(_eval_one, [(kw, s, ticks) for s in skills]):
+                out[s] = (ok, m)
+        return out
     out = {}
     for s in skills:
         try:
@@ -84,6 +105,7 @@ def main(argv=None) -> int:
     p.add_argument("--ticks", type=int, default=80)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--init", default="", help="从已有模型参数起步（json，含 kw）")
+    p.add_argument("--workers", type=int, default=1)
     a = p.parse_args(argv)
     rng = np.random.default_rng(2024 + a.seed)
 
@@ -115,7 +137,7 @@ def main(argv=None) -> int:
 
         rows = []
         for kw in cands:
-            sc = evaluate(kw, ticks=a.ticks)
+            sc = evaluate(kw, ticks=a.ticks, workers=a.workers)
             rows.append((rank_key(sc, ledger), kw, sc))
             got = [s for s, (ok, _) in sc.items() if ok]
             print(f"  代{g+1} 得分 {rank_key(sc, ledger)[:2]} 通过 {got}", flush=True)

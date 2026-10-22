@@ -21,7 +21,8 @@ from agi.body_go2 import Go2Body           # noqa: E402
 from agi.encoding import Observation       # noqa: E402
 
 
-SKILLS = ("walk1", "walk2", "walk3", "walk_to_ball", "turn_to_ball", "getup")
+SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk_to_ball",
+          "turn1", "turn2", "getup1", "getup2")
 
 
 def _brain(kw, preset="small"):
@@ -54,9 +55,9 @@ def _ball(sp, x_norm):
                             (0.95, 0.2, 0.1)))
 
 
-def _run_two_sides(kw, ticks):
+def _run_two_sides(kw, ticks, brain=None):
     """朝球走：同一模型，球在左 vs 在右各跑一次，横向位移必须不同。"""
-    sp, brain = _brain(kw)
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
     out = {}
     for tag, x in (("left", 0.15), ("right", 0.85)):
@@ -82,16 +83,16 @@ def _run_two_sides(kw, ticks):
                 fallen=out["left"]["fallen"] or out["right"]["fallen"])
 
 
-def run_skill(kw, skill, ticks=100):
+def run_skill(kw, skill, ticks=100, brain=None):
     if skill == "walk_to_ball":
-        return _run_two_sides(kw, ticks)
+        return _run_two_sides(kw, ticks, brain=brain)
 
-    sp, brain = _brain(kw)
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
     body = Go2Body(posture_offset=0.12)
     body.reset()
 
-    if skill == "getup":
+    if skill in ("getup1", "getup2", "getup"):
         body.data.qpos[2] = 0.10
         body.data.qpos[3:7] = np.array([0.7071, 0.7071, 0.0, 0.0])
         body.data.qpos[7:19] = np.array([0.0, 1.6, -2.6] * 4)
@@ -107,7 +108,7 @@ def run_skill(kw, skill, ticks=100):
         if skill == "walk_to_ball":
             frac = t / max(1, ticks - 1)
             img = _ball(sp, 0.85 - 0.6 * frac)       # 球从右边逐渐靠近中心
-        elif skill == "turn_to_ball":
+        elif skill in ("turn1", "turn2", "turn_to_ball"):
             img = _ball(sp, 0.85)
         else:
             img = None
@@ -122,16 +123,18 @@ def run_skill(kw, skill, ticks=100):
     dx = xs[-1] - x0
     dyaw = yaws[-1] - yaw0
     fallen = bool(body.fallen())
-    if skill in ("walk1", "walk2", "walk3"):   # 难度档：走 3cm / 5cm / 10cm 各算一档
-        need = {"walk1": 0.03, "walk2": 0.05, "walk3": 0.10}[skill]
+    if skill in ("walk0", "walk1", "walk2", "walk3"):   # 难度档：1.5/3/5/10 厘米
+        need = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10}[skill]
         return dict(ok=(not fallen) and abs(dx) > need, dx=dx, fallen=fallen)
     if skill == "walk_to_ball":
         return dict(ok=(not fallen) and abs(dx) > 0.03, dx=dx, fallen=fallen)
-    if skill == "turn_to_ball":
-        return dict(ok=(not fallen) and abs(dyaw) > 0.15, dyaw=dyaw, fallen=fallen)
-    if skill == "getup":
+    if skill in ("turn1", "turn2", "turn_to_ball"):
+        need = {"turn1": 0.05, "turn2": 0.15, "turn_to_ball": 0.15}[skill]
+        return dict(ok=(not fallen) and abs(dyaw) > need, dyaw=dyaw, fallen=fallen)
+    if skill in ("getup1", "getup2", "getup"):
         h = float(np.mean(heights[-20:]))
-        return dict(ok=(not fallen) and h > 0.20, height=h, fallen=fallen)
+        need = {"getup1": 0.18, "getup2": 0.22, "getup": 0.20}[skill]
+        return dict(ok=(not fallen) and h > need, height=h, fallen=fallen)
     return dict(ok=False)
 
 
