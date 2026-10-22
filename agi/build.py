@@ -496,9 +496,11 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         mforce[m] = f
     # 脊髓级 CPG（可选）：一个小的环状振荡回路，专门产生步态节律。
     # 注意：这和"海马体时间环"是两回事——后者是记忆（秒级），这里是节律（~30 拍一圈）。
+    _cpg_ids = None
     _cpg = int(getattr(spec, "cpg_units", 0))
     if _cpg >= 4:
         cpg = eng.add_block(_cpg, kind="pfc", region="motor", depth=6, thr=0.0, soft=1.0)
+        _cpg_ids = cpg
         gin = eng.add_block(1, kind="motor_inh", region="motor", depth=6, inh=True,
                             thr=0.0, soft=1.0)
         for i in range(_cpg):
@@ -513,8 +515,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         for i in range(_cpg):
             eng.connect(np.array([cpg[i]], np.int32), np.array([mpfc[i % len(mpfc)]], np.int32),
                         np.array([1.0], np.float32))
-        eng.set_thr(cpg, thr=np.full(_cpg, 1.2, np.float32),
-                    soft=np.full(_cpg, 0.4, np.float32))
+        eng.set_thr(cpg, thr=np.full(_cpg, 0.7, np.float32),
+                    soft=np.full(_cpg, 0.25, np.float32))
         # 每个 CPG 单元驱动一批肌肉（按编号轮流）
         for m in range(spec.n_muscle):
             u = cpg[m % _cpg]
@@ -615,6 +617,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
 
     ids["motor"] = dict(pfc=mpfc, relay=mr1, force=mforce, inh=inh, deinh=deinh)
     motor = dict(mpfc=mpfc, mr1=mr1, force=mforce, inh=inh, deinh=deinh, sub=sub)
+    if _cpg_ids is not None:
+        motor["cpg"] = _cpg_ids
     if _winh_ids is not None:
         motor["wall_inh"] = _winh_ids
 
