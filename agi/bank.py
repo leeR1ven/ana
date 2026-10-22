@@ -374,6 +374,7 @@ if __name__ == "__main__":
 _EXTERNAL = (
     ("运动", "站立不摔", "experiments/p5_stand.py --ticks 80", "摔倒 False"),
     ("运动", "被推不摔", "experiments/p22_push.py --ticks 100", "被推后站住 True"),
+    ("运动", "侧躺起身", "experiments/p24_getup.py --ticks 120", "起身成功 True"),
     ("规则", "名字→动作", "experiments/p14_rule_table.py", "规则表可用"),
 )
 
