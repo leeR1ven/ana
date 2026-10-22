@@ -667,7 +667,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         hippo = eng.add_block(_hs, kind="pfc", region="hippo", depth=0,
                               thr=0.0, soft=1.0,
                               pos=_band_pos(geo, "motor", _hs, rng, geo.x_pfc))
-        _str = {"vision": 1.0, "audio": 0.9, "touch": 0.25, "proprio": 0.2, "balance": 0.2}
+        # 海马体只记"内容"（视觉/听觉/触觉），不记肌肉记忆（本体/平衡）
+        _str = {"vision": 1.0, "audio": 0.9, "touch": 0.3, "proprio": 0.0, "balance": 0.0}
         for _name, _L in layers.items():
             if not _name.endswith(".L5"):
                 continue
