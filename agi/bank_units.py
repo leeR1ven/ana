@@ -68,7 +68,8 @@ def measure(h, seed=0):
                    ("balance", sp.balance_ch)):
         for c in range(min(n, 12)):
             v = np.full(n, BASE, np.float32)
-            v[c] = BUMP
+            k = max(1, n // 8)          # 按区规模换算：改一整段，不是一个通道
+            v[c:c + k] = BUMP
             a1 = _run(h, _obs(h, **{key: v}))
             rows.append(_judge(key, c, base, a1))
     return rows
