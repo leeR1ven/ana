@@ -29,7 +29,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -46,6 +46,11 @@ class PlasticConfig:
     min_w: float = 0.01
     decay_every: int = 2000         # 每多少拍整体降权一次
     decay: float = 0.995
+    # 哪些权重"难改"目前还不知道，先给一个可调的默认表（按目标神经元的层深）。
+    # 系数越大越抗遗忘；以后用数据慢慢校准，这里只保证机制在。
+    retain_by_depth: dict = field(
+        default_factory=lambda: {1: 0.90, 2: 0.93, 3: 0.96,
+                                 4: 0.98, 5: 0.995, 6: 0.999})
     max_pairs: int = 4096           # 一拍最多处理几对（防止爆）
     full_cross: int = 20000         # 两批单元乘积不超过这个数就全配对学（不抽样）
     min_change: float = 0.3         # 只在"画面明显变了"时学顺序（重叠<70% 才算换场景）
@@ -401,7 +406,7 @@ class PlasticRule:
         if not m.any():
             return
         # 相对系数：1.0 表示按全局速度掉，越大越"抗遗忘"
-        keep = {1: 0.90, 2: 0.93, 3: 0.96, 4: 0.98, 5: 0.995, 6: 0.999}
+        keep = self.cfg.retain_by_depth
         dep = engine.depth[engine.dst[m]].astype(np.int8)
         fac = np.ones(len(dep), np.float32)
         for d, f in keep.items():
