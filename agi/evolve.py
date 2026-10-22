@@ -122,9 +122,11 @@ def evolve(gens=2, pop=3, seed=0, path=None):
         if best is None:
             cands = [make_spec(rng) for _ in range(pop)]
         else:
-            # 精英保留 + 变异体（和老库一致）
+            # 精英保留 + 融合 + 变异（老库的"融合"= 参数按位平均）
             rows.append((best[0], best[1]))
-            cands = [mutate(best[1], rng) for _ in range(pop - 1)]
+            kids = [fuse(best[1], mutate(best[1], rng))]
+            kids += [mutate(best[1], rng) for _ in range(max(0, pop - 2))]
+            cands = kids
         for kw in cands:
             s = score(kw, seed)
             rows.append((s, kw))
@@ -137,6 +139,16 @@ def evolve(gens=2, pop=3, seed=0, path=None):
     if path:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
+    return out
+
+
+def fuse(a, b):
+    """按位平均两个参数组（老库的"融合"就是参数平均）。"""
+    out = {}
+    for name, lo, hi, _ in KNOBS:
+        va = int(a.get(name, (lo + hi) // 2))
+        vb = int(b.get(name, (lo + hi) // 2))
+        out[name] = int(round((va + vb) / 2.0))
     return out
 
 

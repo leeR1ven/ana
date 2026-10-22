@@ -1,7 +1,7 @@
 {
   "score": 0.8,
   "dentate_factor": 2,
-  "region_links": 128,
-  "n_time": 1017,
-  "k_near": 12
+  "region_links": 103,
+  "n_time": 330,
+  "k_near": 4
 }
