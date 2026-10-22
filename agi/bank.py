@@ -368,3 +368,30 @@ if __name__ == "__main__":
     ap.add_argument("--only", default=None)
     a = ap.parse_args()
     run(a.seed, a.only)
+# ------------------------------------------------------------------ 外部题
+# 运动、规则类需要 mujoco（只在系统 Python 里有），所以走子进程，不混进主环境。
+_EXTERNAL = (
+    ("运动", "站立不摔", "experiments/p5_stand.py --ticks 80", "摔倒 False"),
+    ("规则", "名字→动作", "experiments/p14_rule_table.py", "规则表可用"),
+)
+
+
+def run_external(py=None):
+    import subprocess
+    py = py or os.environ.get("ANA_PY", "")
+    ok = bad = 0
+    for cat, name, script, must in _EXTERNAL:
+        if not py:
+            print(f"  [跳过] {cat} · {name}（未设置 ANA_PY）")
+            continue
+        try:
+            r = subprocess.run([py, "-X", "utf8"] + script.split(),
+                               capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
+                               cwd=os.path.dirname(HERE))
+            hit = must in (r.stdout or "")
+        except Exception:
+            hit = False
+        ok += hit
+        bad += (not hit)
+        print(f"  [{'通过' if hit else '失败'}] {cat} · {name}")
+    return ok, bad
