@@ -126,13 +126,13 @@ class Consolidator:
         self.eng.add_edges(src, dst, vs, group=self.group)
         # 镜像一份到"回忆读出"神经元（不占名额），让回忆在活动里可见
         if self.mirror is not None:
-            old_m = self.eng.group == (self.group + 1)
+            old_m = self.eng.group == (self.group + 2)   # 67：不能和扩维层输入边(66)撞
             if old_m.any():
                 self.eng.drop_edges(old_m)
             m = self.mirror
             ok = (dst >= 0) & (dst < len(m))
             self.eng.add_edges(src[ok], m[dst[ok]].astype(np.int32), vs[ok],
-                               group=self.group + 1)
+                               group=self.group + 2)
         self.eng.rebuild_backend()
         return len(ks)
 
