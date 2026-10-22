@@ -28,6 +28,8 @@ import numpy as np
 try:  # pragma: no cover - 取决于环境
     import torch
 
+    # 单线程：多线程归约的加法顺序不固定，会让"同图同码"间歇失败；实测单线程还更快
+    torch.set_num_threads(1)
     _HAS_TORCH = True
 except Exception:  # pragma: no cover
     torch = None
