@@ -42,13 +42,15 @@ def _work(args):
     except Exception:
         return kw, -5.0, dict(diag=1.0, dx=0.0, maxh=9.0)
     ok = bool(r.get("ok"))
-    score = float(r.get("dx", 0.0)) - 0.4 * float(r.get("diag", 1.0))
+    # 位移是主目标（走多远就多少分）；相位/翻倒只做惩罚，不能给"通过"加固定分，
+    # 否则"走 0.25 米但没倒"会压过"走 0.71 米但最后栽了"——那是错的方向。
+    score = 2.0 * float(r.get("dx", 0.0)) - 0.3 * float(r.get("diag", 1.0))
     if r.get("maxh", 9.0) > 0.45:
         score -= 1.0
     if r.get("fallen"):
-        score -= 0.5
-    if ok:
-        score += 0.5
+        score -= 1.0
+    if not ok:
+        score -= 0.2
     return kw, score, r
 
 
