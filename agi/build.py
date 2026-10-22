@@ -218,10 +218,12 @@ def _sample_no_replace(rng: np.random.Generator, pool: np.ndarray,
 
 def connect_near(eng: Engine, dst: np.ndarray, src: np.ndarray, *,
                  src_geo: Geo2D, dst_geo: Geo2D, k: int,
-                 w_range=(0.05, 0.20), group: int = G.FWD,
+                 w_range=None, group: int = G.FWD,
                  thr_frac: float | None = None, soft_frac: float | None = None,
                  rng: np.random.Generator, bias: int = 3,
                  window: int = 1) -> int:
+    if w_range is None:
+        w_range = _W_RANGE
     """就近多输入：每个目标只从 (y,z) 上 3×3 像素邻域里的上一层神经元中挑 k 个。
 
     参考实现是"取 3k 个最近候选，再随机挑 k"，这里保留同样语义（bias=3）。
@@ -279,6 +281,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     errs = spec.validate() + validate_geometry(spec, geo)
     if errs:
         raise ValueError("规格不合法：\n  - " + "\n  - ".join(errs))
+    global _W_RANGE
+    _W_RANGE = (float(getattr(spec, "w_lo", 0.05)), float(getattr(spec, "w_hi", 0.20)))
     rng = np.random.default_rng(spec.seed)
     cfg = engine_cfg or EngineConfig(seed=spec.seed,
                                       dt=1.0 / (spec.rate_hz * max(1, spec.substeps)))
