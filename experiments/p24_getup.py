@@ -46,9 +46,19 @@ def main(argv=None) -> int:
     p.add_argument("--ticks", type=int, default=120)
     p.add_argument("--preset", default="full")
     p.add_argument("--offset", type=float, default=0.12)
+    p.add_argument("--k_near", type=int, default=0)      # 0 = 用预设值
+    p.add_argument("--region_links", type=int, default=-1)
+    p.add_argument("--n_time", type=int, default=0)
     args = p.parse_args(argv)
 
     sp = build_spec(args.preset)
+    if args.k_near:
+        sp.k_near = args.k_near
+    if args.region_links >= 0:
+        sp.region_links = args.region_links
+    if args.n_time:
+        sp.n_time = args.n_time
+        sp.hippo_bind = sp.hippo_bind and args.n_time > 0
     brain = build(sp, verbose=False)
     eng = brain.engine
     cmd = install_stand(eng, brain)
