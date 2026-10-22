@@ -105,6 +105,9 @@ class GazeBrain:
             balance=np.full(sp.balance_ch, 0.5, np.float32))
 
     def policy(self, off):
+        # 肌肉力度是 0..1（静息为 0），不能直接当有符号位移；
+        # 用两条肌肉"拮抗"：一条推、一条拉，差值才是方向。
         self.ctx.tick(self._see(off), record=False)
-        f = np.asarray(self.b.forces(), np.float32)[:2]
-        return 2.0 * f - 1.0
+        f = np.asarray(self.b.forces(), np.float32)
+        a = np.array([f[2] - f[3], f[9] - f[10]], np.float32) * 2.0
+        return np.clip(a, -1, 1)
