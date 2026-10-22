@@ -909,28 +909,11 @@ def _apply_stage_quantile(brain: "Brain", spec) -> None:
                 eng.set_input(enc.encode(o))
                 eng.step()
 
-    def _cal(ids, target: float = 0.15, steps: int = 9) -> None:
-        """二分搜索门槛：让这一层大约 target 比例的单元过线。
-
-        小区不能用分位数——它们的驱动分布退化（大量 0 或全同），分位数会落在
-        极低处，结果整层全亮（实测听觉 L5 亮 639/640），换刺激也分不开。
-        """
+    def _cal(ids) -> None:
         ids = np.asarray(ids)
         _run()
         d = np.asarray(eng.drive())[ids]
-        lo, hi = 0.0, max(float(d.max()), 1e-3) * 1.05
-        thr = lo
-        for _ in range(steps):
-            mid = 0.5 * (lo + hi)
-            eng.set_thr(ids, thr=np.full(len(ids), mid, np.float32),
-                        soft=np.full(len(ids), max(0.15 * mid, 1e-4), np.float32))
-            _run(n=1)
-            a = float((np.asarray(eng.act)[ids] > 0.5).mean())
-            if a > target:
-                lo = mid
-            else:
-                hi = mid
-            thr = mid
+        thr = max(float(np.quantile(d, q)), 1e-4)
         eng.set_thr(ids, thr=np.full(len(ids), thr, np.float32),
                     soft=np.full(len(ids), max(0.15 * thr, 1e-4), np.float32))
         _run()
