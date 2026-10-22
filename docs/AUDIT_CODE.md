@@ -4042,3 +4042,23 @@ kw: k_near 31, region_links 20, w 0.381/0.408, motor_fan_in 30,
 
 **下一步**：评分加"站立高度要接近 0.25~0.30"这一项（偏离扣分），
 并且每代都抽一帧给人看——**指标和画面必须同时过关**。
+
+## 一百九十八、多技能演化（含融合）跑到第 5 代（2026-10-22）
+
+评分放宽后（去掉姿态高度重罚、只留防飞 + 防同相；位移为主）：
+
+```
+第1代 [gait,walk0,turn1]   gait ✓ walk0 ✓ turn1 ✓   score 0.320  ← 目前最好
+第2代 [gait,turn2,getup2]  gait ✓ turn2 ✓
+第3代 [gait,reach,orbit]   gait ✓
+第4代 [gait,back,tilt]              tilt ✓
+第5代 [gait,follow,gaze]   gait ✓ follow ✓ gaze ✓
+```
+
+**画面核验**（`frames/m2_2.png`）：站得直（高 0.291）、四腿前后错开、不翻不栽；
+位移从 −0.008 → 0.043（40 拍），是**正常行走姿态**，不是匍匐。
+
+**结论**：
+1. **"会走"已经稳定**（三代里 gait 都过）；
+2. 轮换项里 `turn1`/`turn2`/`tilt`/`follow`/`gaze` 能过，`getup2`/`reach`/`orbit` 还不行；
+3. 融合机制已在跑（每代 4 只融合孩子 + 精英跨代保留 5 只）。
