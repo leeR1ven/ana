@@ -22,7 +22,7 @@ from agi.encoding import Observation       # noqa: E402
 
 
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk_to_ball",
-          "turn1", "turn2", "getup0", "getup1", "getup2", "follow", "obstacle")
+          "turn1", "turn2", "getup0", "getup1", "getup2", "follow", "obstacle", "march")
 
 
 def _brain(kw, preset="small"):
@@ -90,6 +90,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_follow(kw, ticks, brain=brain)
     if skill == "obstacle":
         return _run_obstacle(kw, ticks, brain=brain)
+    if skill == "march":
+        return _run_march(kw, ticks, brain=brain)
 
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
@@ -206,3 +208,27 @@ def _run_obstacle(kw, ticks, brain=None):
     d1 = episode(True)
     ok = abs(d1) < abs(d0) * 0.6 + 1e-6
     return dict(ok=ok, dx_free=d0, dx_wall=d1, fallen=False)
+
+def _run_march(kw, ticks, brain=None):
+    """行进（画面交替）：左右两张图逐拍交替，看能不能持续前进。
+
+    这个和 walk0 的区别：walk0 给静止画面，模型几乎不动；
+    walk_to_ball/follow 给变化的画面，模型能走 0.29 米。
+    所以"会不会走"要用**变化**的输入来测。
+    """
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    imgs = (_ball(sp, 0.2), _ball(sp, 0.8))
+    for t in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, imgs[t % 2])))
+        eng.step()
+        body.step(brain.forces())
+    dx = float(body.data.qpos[0]) - x0
+    return dict(ok=(not body.fallen()) and abs(dx) > 0.03, dx=dx, fallen=bool(body.fallen()))
