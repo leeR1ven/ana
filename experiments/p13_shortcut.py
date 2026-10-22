@@ -29,7 +29,7 @@ def l5_active(eng, ids):
     return ids[a > 0.3]
 
 
-def learn_shortcuts(eng, ids_a, ids_b, rng, rounds=60, k=2, w=0.05):
+def learn_shortcuts(eng, ids_a, ids_b, rng, rounds=60, k=2, w=0.3):
     n = 0
     for _ in range(rounds):
         a = l5_active(eng, ids_a)
@@ -38,7 +38,8 @@ def learn_shortcuts(eng, ids_a, ids_b, rng, rounds=60, k=2, w=0.05):
             for _k in range(k):
                 sa = a[rng.integers(0, len(a), min(8, len(a)))]
                 sb = b[rng.integers(0, len(b), min(8, len(b)))]
-                eng.add_edges(sb.astype(np.int32), sa.astype(np.int32),
+                # add_edges(源, 目标)：视觉 → 听觉
+                eng.add_edges(sa.astype(np.int32), sb.astype(np.int32),
                               np.full(len(sa), w, np.float32), group=GROUP)
                 n += len(sa)
     if n:
