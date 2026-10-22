@@ -770,3 +770,44 @@ def calibrate_layers(brain: "Brain", ticks: int = 8) -> None:
     for name, L in brain.layers.items():
         m = np.maximum(q[L.ids], 1e-4)
         eng.set_thr(L.ids, thr=0.0, soft=m.astype(np.float32))
+def _calibrate_by_theta(brain: "Brain", spec) -> None:
+    """权重相对阈值的标定：浅→深逐层设，每层设完先跑几拍再设下一层。
+
+    不能一次性把所有层的门槛都抬高——上层过不过线取决于下层给多少，
+    同时抬高会级联饿死（实测 L2 一个都不亮）。
+    """
+    eng = brain.engine
+    mass = np.maximum(eng.in_weight_sum() + eng.bias, 1e-6)
+    th = float(spec.threshold_theta)
+    so = 0.05
+    enc = brain.encoder
+    rng = np.random.default_rng(spec.seed + 77)
+    obs_list = []
+    for k in range(3):
+        obs_list.append(type("O", (), dict(
+            vision=rng.random((spec.px, spec.px, 3), dtype=np.float32),
+            audio=rng.random((spec.audio_bands, spec.audio_frames), np.float32),
+            touch=np.full(spec.touch_ch, 0.4, np.float32),
+            proprio=np.full(spec.proprio_ch, 0.5, np.float32),
+            balance=np.full(spec.balance_ch, 0.5, np.float32)))())
+
+    def _run(n: int = 6) -> None:
+        for o in obs_list:
+            for _ in range(n):
+                eng.clear_external()
+                eng.set_input(enc.encode(o))
+                eng.step()
+
+    depths = sorted({L.depth for L in brain.layers.values()})
+    for depth in depths:
+        for L in brain.layers.values():
+            if L.depth == depth:
+                i = L.ids
+                eng.set_thr(i, thr=(th * mass[i]).astype(np.float32),
+                            soft=(so * mass[i]).astype(np.float32))
+        _run()
+    i = brain.pfc_ids
+    eng.set_thr(i, thr=(th * mass[i]).astype(np.float32),
+                soft=(so * mass[i]).astype(np.float32))
+    _run()
+    eng.act[:] = 0.0
