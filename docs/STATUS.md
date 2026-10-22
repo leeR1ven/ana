@@ -923,3 +923,13 @@ python experiments/p29_walk_par.py --n 400 --jobs 12 --seed-kw walk_best.json   
 ### 检查
 
 17/17 测试 · 0 issues · 地基符合 · 整拍 13.7 ms（预算 20）。
+
+### 技能 12/13（2026-10-22）
+
+躯干执行器接上后，起身两项通过：
+
+```
+walk0/1/2/3, walk_to_ball, turn1, turn2, getup0, getup1, getup2, follow, march  = 12/13
+```
+
+剩下的只有 `obstacle`（避障）。
