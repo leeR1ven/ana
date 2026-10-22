@@ -557,7 +557,12 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             from .hippocampus import HippoBinder
             # 海马体绑"感觉内容"，不绑前额叶（前额叶不该与海马体相连）
             _sens = [L.ids for name, L in layers.items() if name.endswith(".L5")]
+            _st = {"vision": 1.0, "audio": 0.9, "touch": 0.25,
+                   "proprio": 0.2, "balance": 0.2}   # 看得见/听得着的记得清，摸过/做过的模糊
             brain.binder = HippoBinder(eng, np.concatenate(_sens), brain.time_ring)
+            for _n, _L in layers.items():
+                if _n.endswith(".L5"):
+                    brain.binder._mul[_L.ids] = _st.get(_L.region, 0.5)
     if spec.threshold_theta <= 0:
         calibrate_layers(brain)   # 阈值模式下门槛由权重相对阈值定，不再用分位标定
     if spec.pfc_filter:

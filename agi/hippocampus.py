@@ -52,7 +52,8 @@ class HippoBinder:
     def __init__(self, engine, pfc_ids, ring, group_in: int = 63, group_out: int = 64,
                  lr: float = 1.0, cap: int = 256, w_max: float = 1.0,
                  decay: float = 0.99, decay_every: int = 10, min_w: float = 0.05,
-                 strength: float = 3.0, seed: int = 5):
+                 strength: float = 3.0, region_strength: dict | None = None,
+                 seed: int = 5):
         # 时间绑定是**短期记忆**：写得快（lr≈1，一次就到目标）、忘得快（decay + 删弱边）。
         # 这和皮层/PFC 的长期连接相反（那边是凹增长、难改、不衰减）。
         self.eng = engine
@@ -62,6 +63,12 @@ class HippoBinder:
         self.lr, self.cap, self.w_max = lr, int(cap), w_max
         self.decay, self.decay_every, self.min_w = decay, max(1, int(decay_every)), min_w
         self.strength = strength      # 时间→内容的边要够强才推得亮（感觉层门槛较高）
+        # 各感觉区与海马体的关联"程度不同"：按区给不同强度（默认都一样）
+        self.region_strength = region_strength or {}
+        self._mul = np.ones(engine.n, np.float32)
+        for _r, _w in self.region_strength.items():
+            _m = engine.region == _r
+            self._mul[_m] = float(_w)
         self.rng = np.random.default_rng(seed)
         self.enc: dict[int, float] = {}     # pfc -> time 的权重
         self.dec: dict[int, float] = {}     # time -> pfc 的权重
@@ -108,6 +115,6 @@ class HippoBinder:
         vals = np.fromiter(self.dec.values(), np.float32, len(self.dec))
         src = self.ring.ids[(keys // 10_000_000).astype(np.int64)]
         dst = (keys % 10_000_000).astype(np.int32)
-        self.eng.add_edges(src, dst, (vals * self.strength).astype(np.float32), group=self.g_out)
+        w = vals * self.strength * self._mul[dst]      # 按目标所在区缩放：各区关联程度不同\n        self.eng.add_edges(src, dst, w.astype(np.float32), group=self.g_out)
         self.eng.rebuild_backend()
         return len(keys)
