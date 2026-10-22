@@ -737,8 +737,11 @@ def calibrate_layers(brain: "Brain", ticks: int = 8) -> None:
     eng = brain.engine
     rng = np.random.default_rng(brain.spec.seed + 31)
     buf = _collect_drive(brain, ticks, rng, warmup=18)
-    # 用"这个神经元自己驱动的 75% 分位"当带宽：中位数会被大量 0 干扰，
-    # 均值会被少数极大值拉高，分位数最稳（链式架构也是用中位驱动定的）。
+    # 带宽 = 这个神经元自己驱动的 75% 分位。
+    # 注：链式库 calib.py 的公式是"门槛=0.7×中位、带宽=2×起伏+0.15×中位"。
+    # 照抄试过（2026-10-22）：活动会落在分级区，同一张图连看三次亮的单元会差几个
+    # （1198/1212/1212）——浮点抖动改变了 top-k 的选中结果，破坏"同一输入→同一批
+    # 神经元"。所以保留"接近饱和"的带宽，偏差记在 docs/AUDIT.md。
     q = np.quantile(buf, 0.75, axis=0)
     for name, L in brain.layers.items():
         m = np.maximum(q[L.ids], 1e-4)

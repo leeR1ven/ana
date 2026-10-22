@@ -431,7 +431,7 @@ class Engine:
             self.selected[:] = False
             for s, e, k, mt in self._masks:
                 seg = rn[s:e]
-                key = seg + self._prio[s:e]
+                key = np.round(seg, 4) + self._prio[s:e]
                 idx = np.argpartition(-key, k - 1)[:k]
                 mt.zero_()
                 mt[idx] = 1.0
@@ -447,7 +447,7 @@ class Engine:
             self.selected[:] = False
             for s, e, k, m in self._masks:
                 seg = raw[s:e]
-                key = seg + self._prio[s:e]
+                key = np.round(seg, 4) + self._prio[s:e]
                 idx = np.argpartition(-key, k - 1)[:k]
                 m[:] = 0.0
                 m[idx] = 1.0
