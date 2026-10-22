@@ -512,7 +512,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             wgt = float(getattr(spec, "wall_inh_gain", 0.5))
             for m in range(spec.n_muscle):
                 f = mforce[m]
-                eng.connect(np.repeat(winh, spec.n_force), np.tile(f, 16),
+                eng.connect(np.tile(f, 16), np.repeat(winh, spec.n_force),
                             np.full(16 * spec.n_force, wgt, np.float32),
                             group=G.MOTOR_BLOCK)
 
