@@ -217,6 +217,63 @@ def _(h):
     return fwd > skip
 
 
+@case("感知", "颜色辨别")
+def _(h):
+    red = scene(h.px, 0.5, 0.5)
+    green = np.maximum(np.zeros((h.px, h.px, 3), np.float32) + 0.05,
+                       _blob(h.px, 0.5, 0.5, 0.25, (0.1, 0.9, 0.2)))
+    h.run(red)
+    a = h.pfc()
+    h.run(green)
+    return jac(a, h.pfc()) < 0.4
+
+
+@case("感知", "尺度辨别")
+def _(h):
+    big = np.maximum(np.zeros((h.px, h.px, 3), np.float32) + 0.05,
+                     _blob(h.px, 0.5, 0.5, 0.30, (0.95, 0.2, 0.1)))
+    small = np.maximum(np.zeros((h.px, h.px, 3), np.float32) + 0.05,
+                       _blob(h.px, 0.5, 0.5, 0.10, (0.95, 0.2, 0.1)))
+    h.run(big)
+    a = h.pfc()
+    h.run(small)
+    return jac(a, h.pfc()) < 0.6
+
+
+@case("抗干扰", "整体亮度")
+def _(h):
+    base = scene(h.px, 0.45, 0.45)
+    h.run(base)
+    a = h.pfc()
+    h.run(np.clip(base + 0.10, 0, 1).astype(np.float32))
+    return jac(a, h.pfc()) > 0.4
+
+
+@case("记忆", "两段时间分辨")
+def _(h):
+    A = scene(h.px, 0.30, 0.30)
+    B = scene(h.px, seed=7)
+    for k in range(8):
+        h.run(A, n=1, reset=(k == 0))
+    h.b.binder.flush()
+    codeA = h.dent()
+    for k in range(8, 16):
+        h.run(B, n=1, reset=False)
+    codeB = h.dent()
+    slotA = int(h.b.time_ring.ids[5])
+    h.eng.act[:] = 0.0
+    h.eng.reset_adaptation()
+    for _ in range(8):
+        h.eng.clear_external()
+        h.eng.set_input(np.zeros(h.b.encoder.n_in, np.float32))
+        h.eng.set_external([slotA], np.ones(1, np.float32))
+        h.eng.step()
+    got = set(dentate_code(h.eng, h.dg).tolist())
+    ha = len(got & codeA) / max(1, len(codeA))
+    hb = len(got & codeB) / max(1, len(codeB))
+    return ha > 0.2 and ha > hb
+
+
 def _rules(h):
     return None
 
