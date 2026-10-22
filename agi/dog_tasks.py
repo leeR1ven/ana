@@ -1103,8 +1103,13 @@ def _ball_xy(sp, x_norm, y_norm, size=0.18):
                       _blob(px, float(np.clip(x_norm, 0.05, 0.95)),
                             float(np.clip(y_norm, 0.05, 0.95)), size, (0.95, 0.2, 0.1)))
 
-def _hebb_step(eng, group=90, lr=0.05):
-    """海马体那组边做一次共激活增强（赫布）：一起亮的 src/dst 权重上调。"""
+def _hebb_step(eng, group=90, lr=0.7):
+    """海马体那组边做一次共激活增强（赫布）。
+
+    学习率要大（0.7）：一次配对就把权重推到 0.7，两三次接近饱和——
+    这才叫"瞬间记住"。用 (1-w) 因子做饱和：涨得快、之后很难再涨。
+    小学习率（0.01~0.05）会让记忆变成"慢慢累积"，短时间内记不住东西。
+    """
     m = np.asarray(eng.group) == group
     if not m.any():
         return 0
