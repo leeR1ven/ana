@@ -494,6 +494,33 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                                    dtype=np.float32))).astype(np.float32)
         eng.set_thr(f, thr=thr, soft=np.full(spec.n_force, 0.6, np.float32))
         mforce[m] = f
+    # 脊髓级 CPG（可选）：一个小的环状振荡回路，专门产生步态节律。
+    # 注意：这和"海马体时间环"是两回事——后者是记忆（秒级），这里是节律（~30 拍一圈）。
+    _cpg = int(getattr(spec, "cpg_units", 0))
+    if _cpg >= 4:
+        cpg = eng.add_block(_cpg, kind="pfc", region="motor", depth=6, thr=0.0, soft=1.0)
+        gin = eng.add_block(1, kind="motor_inh", region="motor", depth=6, inh=True,
+                            thr=0.0, soft=1.0)
+        for i in range(_cpg):
+            nxt = (i + 1) % _cpg
+            eng.connect(np.array([cpg[nxt]], np.int32), np.array([cpg[i]], np.int32),
+                        np.array([2.0], np.float32))          # 环上强兴奋
+            eng.connect(np.array([gin[0]], np.int32), np.array([cpg[i]], np.int32),
+                        np.array([1.4], np.float32))          # 全局抑制
+            eng.connect(np.array([cpg[i]], np.int32), np.array([gin[0]], np.int32),
+                        np.array([0.5], np.float32))          # 驱动抑制
+        # 基础张力：从运动前额叶取一点持续驱动，环才不会停在"全灭"
+        for i in range(_cpg):
+            eng.connect(np.array([cpg[i]], np.int32), np.array([mpfc[i % len(mpfc)]], np.int32),
+                        np.array([1.0], np.float32))
+        eng.set_thr(cpg, thr=np.full(_cpg, 1.2, np.float32),
+                    soft=np.full(_cpg, 0.4, np.float32))
+        # 每个 CPG 单元驱动一批肌肉（按编号轮流）
+        for m in range(spec.n_muscle):
+            u = cpg[m % _cpg]
+            for f_cell in mforce[m]:
+                eng.connect(np.array([f_cell], np.int32), np.array([u], np.int32),
+                            np.array([0.6], np.float32))
     # 触觉 → 运动直连（脊髓级反射）：第 i 个触觉通道连到第 i 条腿的抬起类肌肉。
     # 这样"碰到哪条腿，哪条腿抬起来"是结构里长出来的，不用在任务里手写反射。
     if getattr(spec, "touch_reflex", False):
