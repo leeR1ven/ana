@@ -454,6 +454,27 @@ def _run_goto2(kw, ticks, brain=None):
     return dict(ok=bool(ok), far=float(a), mid=float(b), near=float(c), fallen=False)
 
 
+def _foot_forces(body):
+    """四条腿各自是否着地（看接触是否发生在该腿的小腿 body 上）。"""
+    import mujoco
+    m, d = body.model, body.data
+    legs = []
+    for nm in ("FL", "FR", "RL", "RR"):
+        bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, nm + "_calf")
+        legs.append(bid)
+    if any(b < 0 for b in legs):
+        return np.ones(4, np.float32) * 9.9
+    on = np.zeros(4, np.float32)
+    for k in range(d.ncon):
+        con = d.contact[k]
+        b1 = m.geom_bodyid[con.geom1] if con.geom1 >= 0 else -1
+        b2 = m.geom_bodyid[con.geom2] if con.geom2 >= 0 else -1
+        for i, bid in enumerate(legs):
+            if b1 == bid or b2 == bid:
+                on[i] = 1.0
+    return on
+
+
 def _run_gait(kw, ticks, brain=None):
     """真走路：不飞、不翻，而且四条腿不能同相（对角腿要反相）。
 
@@ -467,7 +488,7 @@ def _run_gait(kw, ticks, brain=None):
     body.data.qpos[7:19] = np.array([0.0, 0.9, -1.8] * 4)
     body.mj.mj_forward(body.model, body.data)
     x0 = float(body.data.qpos[0])
-    hs, qs = [], []
+    hs, qs, foot_contact = [], [], []
     for _ in range(ticks):
         eng.clear_external()
         eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
@@ -475,7 +496,12 @@ def _run_gait(kw, ticks, brain=None):
         body.step(brain.forces())
         hs.append(float(body.data.qpos[2]))
         qs.append(body.data.qpos[7:19].copy())
+        foot_contact.append(_foot_forces(body))
     q = np.stack(qs)
+    # 足端接触：每条腿"着地"的拍数占比（真正的迈步必须有腿离地）
+    contacts = np.asarray(foot_contact, np.float32)      # (ticks, 4)
+    stance = contacts.mean(0)                            # 每条腿着地比例
+    swing_ok = bool((stance < 0.95).sum() >= 2)           # 至少两条腿有明显摆动相
     q = q - q.mean(0)
     leg = np.stack([q[:, 0:3].mean(1), q[:, 3:6].mean(1),
                     q[:, 6:9].mean(1), q[:, 9:12].mean(1)])
@@ -487,9 +513,9 @@ def _run_gait(kw, ticks, brain=None):
     amp = float(np.degrees(q.max(0) - q.min(0)).mean())
     dx = abs(float(body.data.qpos[0]) - x0)
     hi = max(hs)
-    ok = (hi < 0.45) and (diag < 0.30) and (amp > 8.0) and (dx > 0.05)
-    return dict(ok=bool(ok), dx=dx, maxh=float(hi), diag=float(diag),
-                amp=amp, fallen=bool(body.fallen()))
+    ok = (hi < 0.45) and (diag < 0.30) and (amp > 8.0) and (dx > 0.05) and swing_ok
+    return dict(ok=bool(ok), dx=dx, maxh=float(hi), diag=float(diag), amp=amp,
+                swing=float((stance < 0.95).sum()), fallen=bool(body.fallen()))
 
 
 def _run_reach(kw, ticks, brain=None):
