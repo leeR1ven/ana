@@ -1042,3 +1042,10 @@ walk0/1/2/3, walk_to_ball, turn1, turn2, getup0/1/2, follow, obstacle, march  = 
 并且 `walk0–4` 全部保住（前进没有因为双向映射垮掉——演化学会了输出偏正的力度）。
 
 仍缺：`walk5`(0.30m)、`turn3`(0.30rad)、`obstacle2`、`lie`(趴下)、`spin`(转一圈)、`crawl`(低姿爬行)、`chase`(追移动物体)。
+
+### 题库 37 项，31/37（2026-10-22）
+
+第 2 代到 **31/37**：`goto`（走到并停在 0.14–0.22m）、`goto2`（按目标大小调距离）、
+`walk5`(30cm)、`turn3`(0.30rad)、`chase`（追物体）、`biped`（两腿站立）全部通过。
+
+仍缺 6 项：`obstacle2`、`lie`（趴下）、`spin`（原地转一圈）、`crawl`（低姿爬行）、`jump`（跃过）、`detour`（绕过）。
