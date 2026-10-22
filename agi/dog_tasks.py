@@ -123,14 +123,15 @@ def _wire_clock(brain, kw):
         rev = bool(kw.get("clock_reverse"))
         for mus in range(12):
             leg = mus // 3
-            ph = leg_phase[leg] + (0.5 if mus % 3 == 2 else 0.0)   # 膝再差半拍
+            ph = leg_phase[leg] + float(kw.get("clock_knee", 0.0)) * (1 if mus % 3 == 2 else 0)
             base = (ph * len(ring)) % len(ring)
+            slope = int(kw.get("clock_slope", 3))
             for i in range(per):
                 unit = int(mpfc[min(n_mpfc - 1, mus * per + i)])
                 if rev:
-                    idx = int((base - i * 3) % len(ring))
+                    idx = int((base - i * slope) % len(ring))
                 else:
-                    idx = int((base + i * 3) % len(ring))
+                    idx = int((base + i * slope) % len(ring))
                 src.append(int(ring[idx]))
                 dst.append(unit)
                 w.append(gain)
