@@ -514,9 +514,21 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             winh = eng.add_block(16, kind="motor_inh", region="motor", depth=6, inh=True,
                                  thr=0.0, soft=1.0,
                                  pos=_band_pos(geo, "motor", 16, rng, geo.x_motor_gate + 0.04))
-            pv = _sample_no_replace(rng, vis5.ids, 16, 12)
-            eng.connect(np.repeat(winh, 12), pv.reshape(-1),
-                        rng.uniform(0.05, 0.15, 16 * 12), group=G.MOTOR_NON)
+            # 输入按"视网膜位置"选：横向中央、纵向下方（障碍出现在视野下方中间）
+            pos_v = np.asarray(eng.pos)[np.asarray(vis5.ids)]
+            spread = pos_v[:, :2].std(0)
+            ax_h = int(np.argmax(spread))
+            ax_v = 1 - ax_h
+            hv, vv = pos_v[:, ax_h], pos_v[:, ax_v]
+            keep = ((hv > np.quantile(hv, 0.30)) & (hv < np.quantile(hv, 0.70))
+                    & (vv < np.quantile(vv, 0.55)))
+            sel = np.asarray(vis5.ids)[keep]
+            if len(sel) < 8:
+                sel = np.asarray(vis5.ids)
+            pv = rng.choice(sel, min(len(sel), 48), replace=False)
+            n_src = int(len(pv))
+            eng.connect(np.repeat(winh, n_src), np.tile(pv, 16),
+                        np.full(16 * n_src, 0.8, np.float32), group=G.MOTOR_NON)
             eng.set_thr(winh, thr_frac=float(getattr(spec, "wall_inh_thr", 0.30)),
                         soft_frac=0.20)
             _winh_ids = winh
