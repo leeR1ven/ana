@@ -886,7 +886,8 @@ def _run_obstacle(kw, ticks, brain=None, strict=False):
     d0, f0 = episode(False)
     d1, f1 = episode(True)
     # 判据改成"看见障碍就收力"——位移主要来自滑动，用它判测不出东西
-    ok = f1 < f0 * (0.40 if strict else 0.75)
+    # 无墙时必须真的有力气，否则"两边都归零"会假通过
+    ok = (f0 > 0.05) and (f1 < f0 * (0.40 if strict else 0.75))
     return dict(ok=ok, dx_free=d0, dx_wall=d1, force_free=f0, force_wall=f1, fallen=False)
 
 def _run_march(kw, ticks, brain=None):
