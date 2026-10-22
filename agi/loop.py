@@ -97,7 +97,9 @@ class Cortex:
             self.engine.step()
         binder = getattr(self.brain, "binder", None)
         if binder is not None:
-            binder.step(self.brain.pfc_code())
+            _tgt = binder.pfc                       # 绑定目标 = 各感觉区 L5
+            _a = np.asarray(self.engine.act)[_tgt]
+            binder.step(_tgt[_a > 0.5])
             if binder.t % max(1, int(sp.hippo_flush_every)) == 0:
                 binder.flush()
         t2 = time.perf_counter()

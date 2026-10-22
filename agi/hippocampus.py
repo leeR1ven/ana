@@ -115,6 +115,7 @@ class HippoBinder:
         vals = np.fromiter(self.dec.values(), np.float32, len(self.dec))
         src = self.ring.ids[(keys // 10_000_000).astype(np.int64)]
         dst = (keys % 10_000_000).astype(np.int32)
-        w = vals * self.strength * self._mul[dst]      # 按目标所在区缩放：各区关联程度不同\n        self.eng.add_edges(src, dst, w.astype(np.float32), group=self.g_out)
+        w = vals * self.strength * self._mul[dst]      # 按目标所在区缩放：各区关联程度不同
+        self.eng.add_edges(src, dst, w.astype(np.float32), group=self.g_out)
         self.eng.rebuild_backend()
         return len(keys)
