@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
+def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 4,
                   active_frac: float = 0.02, group: int = 66, seed: int = 13,
                   region: str = "time"):
     """建一层扩维去相关单元，返回它们的编号。"""
