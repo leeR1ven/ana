@@ -686,7 +686,8 @@ def _run_shake(kw, ticks, brain=None):
 
 
 def _run_back(kw, ticks, brain=None):
-    """后退：同样给"前方有方向线索"的输入，要求往后退（dx 为负）。"""
+    """后退：眼前一个很近的大物体（占满画面中心），应该往后退。"""
+    from agi.world import _blob
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
     body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
@@ -695,9 +696,12 @@ def _run_back(kw, ticks, brain=None):
     body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
     body.mj.mj_forward(body.model, body.data)
     x0 = float(body.data.qpos[0])
+    px = sp.px
+    big = np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                     _blob(px, 0.5, 0.5, 0.38, (0.95, 0.2, 0.1)))
     for _ in range(ticks):
         eng.clear_external()
-        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.set_input(brain.encoder.encode(_obs(sp, big)))
         eng.step()
         body.step(brain.forces())
     dx = float(body.data.qpos[0]) - x0
