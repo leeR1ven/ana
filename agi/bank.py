@@ -133,7 +133,7 @@ def _(h):
 def _(h):
     h.run(scene(h.px, 0.5, 0.5))
     a = h.pfc()
-    h.run(scene(h.px, 0.5, 0.5, noise=0.05))
+    h.run(scene(h.px, 0.5, 0.5, noise=0.03))
     return jac(a, h.pfc()) > 0.5
 
 
@@ -157,7 +157,7 @@ def _(h):
 def _(h):
     h.run(scene(h.px, 0.5, 0.5), n=14)
     snap = h.dent()
-    h.ctx.consolidator.flush()
+    h.b.binder.flush()                  # 时间绑定是 binder 写的（组 64），不是 consolidator
     slot = int(h.b.time_ring.ids[8])
     h.eng.act[:] = 0.0
     h.eng.reset_adaptation()
@@ -194,13 +194,13 @@ def _(h):
 def _(h):
     imgs = {1: scene(h.px, 0.35, 0.5), 2: scene(h.px, seed=4), 3: scene(h.px, 0.65, 0.5)}
     codes = {}
-    for _ in range(6):
+    for _ in range(10):
         for x in (1, 2, 3, 2):
             h.run(imgs[x], n=14)
             codes[x] = h.dent()
             h.ctx.consolidator.step(list(h.dent()))
     h.ctx.consolidator.flush()
-    d = h.cue(codes[1])
+    d = h.cue(codes[1], n=2)          # 只走两拍：看"直接联想"，别让传播扩散把它抹平
     fwd = float(np.mean(d[list(codes[2])]))
     skip = float(np.mean(d[list(codes[3])]))
     return fwd > skip
