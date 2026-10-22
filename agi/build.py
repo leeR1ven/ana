@@ -564,7 +564,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         eng.cfg.gain_div = float(spec.pfc_gain_div)
         eng.cfg.gain_div_ids = tuple(int(x) for x in np.concatenate(
             list(pfc_groups.values()) + [mpfc]))
-    eng.cfg.target_active = (max(1, int(k_total)) if k_total
+    eng.cfg.target_active = 0 if spec.threshold_theta > 0 else (max(1, int(k_total)) if k_total
                              else max(1, int(round(spec.pfc_target_frac * total_pfc))))
     if do_calibrate:
         cal = calibrate(brain, ticks=calib_ticks, seed=spec.seed + 101)
@@ -655,7 +655,7 @@ def calibrate(brain: "Brain", ticks: int = 8, seed: int = 11) -> dict:
     # 1:1 专用线的前额叶 = 直通（门槛已经在 build 里按入边和设好），
     # 不要再用"组内分位数"标定——1:1 的驱动是双峰的（0 或 ~0.9），
     # 分位数会落在峰顶，把整组标成哑的。
-    if brain.spec.pfc_fan_in > 1:
+    if brain.spec.pfc_fan_in > 1 and brain.spec.threshold_theta <= 0:
         for g in brain.pfc_groups.values():
             _group_thr(eng, g, buf, brain.spec.pfc_target_frac)
     _group_thr(eng, brain.motor["mpfc"], buf, brain.spec.motor_target_frac)
