@@ -17,11 +17,13 @@
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from .encoding import Observation
 
-DEFAULT_XML = r"C:\mujoco_models\unitree_go2\scene.xml"
+DEFAULT_XML = os.environ.get("ANA_GO2_XML") or r"C:\mujoco_models\unitree_go2\scene.xml"
 
 
 class Go2Body:
