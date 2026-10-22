@@ -497,6 +497,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     # 墙抑制组（可选）：视觉 L5 → 抑制神经元 → 力度细胞。
     # 引擎的符号规则是"源神经元是不是抑制型决定正负"，所以必须有一个抑制型中间组，
     # 才能让"看到障碍"把力度压下去（而不是继续推高）。
+    _winh_ids = None
     if getattr(spec, "wall_inh", False):
         vis5 = layers.get("vision.L5")
         if vis5 is not None:
@@ -507,6 +508,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             eng.connect(np.repeat(winh, 12), pv.reshape(-1),
                         rng.uniform(0.05, 0.15, 16 * 12), group=G.MOTOR_NON)
             eng.set_thr(winh, thr_frac=0.30, soft_frac=0.35)
+            _winh_ids = winh
             wgt = float(getattr(spec, "wall_inh_gain", 0.5))
             for m in range(spec.n_muscle):
                 f = mforce[m]
@@ -544,6 +546,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
 
     ids["motor"] = dict(pfc=mpfc, relay=mr1, force=mforce, inh=inh, deinh=deinh)
     motor = dict(mpfc=mpfc, mr1=mr1, force=mforce, inh=inh, deinh=deinh, sub=sub)
+    if _winh_ids is not None:
+        motor["wall_inh"] = _winh_ids
 
     # ---- 区与区之间的直连（出生固定、不参与学习：这类连接天生难改）----
     if spec.region_links > 0:
