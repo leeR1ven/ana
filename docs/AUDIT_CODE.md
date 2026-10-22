@@ -3196,3 +3196,27 @@ joint 10 qposadr=16  RR_hip     joint 11 RR_thigh    joint 12 RR_calf
 
 已把 `robust` 的默认值定为：`balance_reflex=True, balance_gain=1.5, push_amp=0.3`。
 这样这道题**可达**（有人能过），后续要加难只需把 `push_amp` 往上调。
+
+## 一百五十八、fovea：中心像素密度高（不是加权）（2026-10-22）
+
+按"密度"而不是"权重"重做：`encoding._foveal` 做**中央凹重采样**——
+给 px×px 个采样点分配方向/切比雪夫半径，半径用指数映射 `r = expm1(k·u)/expm1(k)`，
+于是中心区域分到更多采样点（k=2.2）。
+
+实测（同样的 3×3 小斑，放在中心 vs 边缘）：
+
+| 位置 | 采样后覆盖像素数 |
+|---|---:|
+| 中心 | **25** |
+| 边缘 | **6** |
+
+**中心密度约为边缘的 4 倍**，正是"中央凹"的效果。
+
+对现有技能的影响（同一模型，fovea 开/关）：
+
+```
+fovea=False  walk0=P walk3=P walk5=- obstacle=P turn1=P
+fovea=True   walk0=P walk3=P walk5=- obstacle=P turn1=P
+```
+
+**完全一致**——说明重采样没有破坏已经学会的行为（我们的任务里，球的位置信息在中心附近本来就最丰富）。

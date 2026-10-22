@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """感觉编码：把外界数值变成"每对恰好亮一个"的温度计细胞。
 
 规则（来自链式架构）：
@@ -51,6 +51,27 @@ class Encoder:
         self.last = None
 
     # -------------------------------------------------- 各模态 -> 温度计
+    def _fovea_gain(self, c: int) -> np.ndarray:
+        """中心高分辨：画面中心像素的增益高、边缘低（像视网膜的中央凹）。
+
+        c 是通道数（px*px*3），按像素半径给一个平滑衰减的增益。
+        """
+        sp = self.spec
+        if c % 3:
+            return None
+        npx = c // 3
+        px = int(round(npx ** 0.5))
+        if px * px != npx:
+            return None
+        yy, xx = np.mgrid[0:px, 0:px].astype(np.float32)
+        cy = cx = (px - 1) / 2.0
+        r = np.sqrt(((yy - cy) / max(1e-6, cy)) ** 2 + ((xx - cx) / max(1e-6, cx)) ** 2) / 1.4142
+        g = 0.35 + 0.65 * np.exp(-(r ** 2) / (2 * 0.45 ** 2))   # 中心≈1.0，边缘≈0.35
+        g = np.repeat(g[:, :, None], 3, axis=2).reshape(-1)
+        if g.size != c:
+            return None
+        return g
+
     def _fill_thermo(self, region: str, vals: np.ndarray) -> None:
         a, b = self.layout[region]
         n = self.spec.n_level
@@ -64,6 +85,26 @@ class Encoder:
         buf[:, 0, :] = pos
         buf[:, 1, :] = neg
 
+
+    def _foveal(self, img: np.ndarray) -> np.ndarray:
+        """中央凹重采样：中心像素密度高（一个小斑在中心会被放大），边缘稀疏。
+
+        做法是"反向映射"：给 px×px 个采样点分配方向/半径，
+        半径用指数映射 r = expm1(k·u)/expm1(k)，u 均匀 → 中心分到更多采样点。
+        """
+        sp = self.spec
+        px = int(sp.px)
+        kv = float(getattr(sp, "fovea_k", 2.2))
+        u = np.linspace(-1.0, 1.0, px, dtype=np.float32)
+        uu, vv = np.meshgrid(u, u)
+        ru = np.maximum(np.abs(uu), np.abs(vv))          # 切比雪夫半径 ∈ [0,1]
+        k = kv
+        rr = np.expm1(k * ru) / np.expm1(k)              # 中心密集
+        scale = np.where(ru > 1e-6, rr / np.maximum(ru, 1e-6), 1.0)
+        sx = np.clip(((uu * scale + 1.0) * 0.5 * (px - 1)), 0, px - 1).astype(np.int32)
+        sy = np.clip(((vv * scale + 1.0) * 0.5 * (px - 1)), 0, px - 1).astype(np.int32)
+        return img[sy, sx, :]
+
     def encode(self, obs: Observation) -> np.ndarray:
         sp = self.spec
         self.buf[:] = 0.0
@@ -71,6 +112,8 @@ class Encoder:
             img = obs.vision
             if img is None:
                 img = np.zeros((sp.px, sp.px, 3), np.float32)
+            if getattr(sp, "fovea", True):
+                img = self._foveal(np.asarray(img, np.float32))
             self._fill_thermo("vision", np.asarray(img, np.float32).reshape(-1))
         if "audio" in self.layout:
             au = obs.audio if obs.audio is not None else np.zeros(
