@@ -73,6 +73,13 @@ class PlasticConfig:
     # 复用优先：源头的出边够多了就不再长新边，只加强已有的（老边才会被反复用到）
     reuse_first: bool = True
     min_out_new: int = 4            # 出边少于这个数才允许长新边
+    # 互抑制（用户原话：很少一起出现 → 连向对方的抑制更强）：
+    # 用"负连接"实现同样的效果——A 亮时压住 B，只有它们很少一起出现才会长。
+    anti_learn: bool = False        # 默认关：实测对"联想特异性"没有帮助（+0.010 vs 不加 +0.013）
+    anti_eta: float = 0.01
+    anti_max: float = 0.6
+    anti_group: int = 41
+    n_anti: int = 3                 # 每个源每次挑几个"没一起亮"的目标
 
 
 class PlasticRule:
@@ -103,6 +110,7 @@ class PlasticRule:
         self._recent = np.zeros(0, bool)
         self._grown = 0
         self._strengthened = 0
+        self._anti: dict[int, float] = {}     # 负连接：key -> 负权重
         self.t = 0
 
     # ------------------------------------------------------------ 主入口
@@ -202,6 +210,16 @@ class PlasticRule:
                 b = newly[self.rng.integers(0, len(newly), k)]
                 keep = a != b
                 self._apply_pairs(engine, a[keep], b[keep], cfg.eta_sim)
+        # 互抑制：源亮、目标没亮 → 长负连接（很少一起出现才长）
+        if self.cfg.anti_learn and len(pre):
+            cand = cur if len(cur) else prev
+            n = engine.n
+            a = pre[self.rng.integers(0, len(pre), min(len(pre) * self.cfg.n_anti, 4096))]
+            b = cand[self.rng.integers(0, len(cand), len(a))]
+            keep = a != b
+            for k in (a[keep].astype(np.int64) * n + b[keep].astype(np.int64)).tolist():
+                v = max(-self.cfg.anti_max, self._anti.get(k, 0.0) - self.cfg.anti_eta)
+                self._anti[k] = v
         return self._grown, self._strengthened
 
     def _apply_pairs(self, engine, src: np.ndarray, dst: np.ndarray, eta: float) -> None:
@@ -299,6 +317,15 @@ class PlasticRule:
         if self.cfg.decay_every and self.t % self.cfg.decay_every == 0:
             self._decay(engine)
             pruned = self._prune(engine)
+        if self._anti:
+            old = engine.group == self.cfg.anti_group
+            if old.any():
+                engine.drop_edges(old)
+            keys = np.fromiter(self._anti.keys(), np.int64, len(self._anti))
+            vals = np.fromiter(self._anti.values(), np.float32, len(self._anti))
+            engine.add_edges((keys // engine.n).astype(np.int32),
+                             (keys % engine.n).astype(np.int32), vals,
+                             group=self.cfg.anti_group)
         self.sync(engine)
         engine.rebuild_backend()
         return pruned
