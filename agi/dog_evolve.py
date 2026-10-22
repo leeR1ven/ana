@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""狗技能演化：扫描 → 全技能评分 → 选优 → 融合 → 变异 → 再扫描。
+"""狗技能演化：全量测试每个候选，技能只增不减。
 
-不遗忘的规则（写死在筛选里）：
-  · 技能清单只增不减；
-  · 候选必须通过清单里所有"已获得"的技能，任何一项退化就淘汰。
+规则（写死在筛选里）：
+  · 每个候选都跑**全部**技能，指标全存档；
+  · 技能清单只增不减；已获得技能退化 → 直接淘汰；
+  · 每项技能保留前 2 名（专科池），与综合第一一起繁育；
+  · 融合 = 出生参数按位平均（seed 不融合），随后变异。
 
 用法（系统 Python，需 mujoco）：
-    python -m agi.dog_evolve --gens 2 --pop 3
+    ANA_GO2_XML=/root/go2models/scene.xml python -m agi.dog_evolve \
+        --gens 5 --pop 8 --workers 8 --init walk_best.json
 """
 from __future__ import annotations
 
@@ -20,11 +23,12 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from agi.dog_tasks import SKILLS, run_skill   # noqa: E402
+from agi.dog_tasks import SKILLS, run_skill          # noqa: E402
 
-PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in")
-RANGES = {"k_near": (4, 24), "region_links": (0, 128),
-          "w_lo": (0.02, 0.5), "w_hi": (0.3, 2.0)}
+PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in", "posture_offset")
+RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
+          "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
+          "posture_offset": (0.12, 0.6)}
 
 
 def random_kw(rng):
@@ -32,18 +36,21 @@ def random_kw(rng):
                 k_near=int(rng.integers(4, 25)),
                 region_links=int(rng.integers(0, 129)),
                 w_lo=float(rng.uniform(0.02, 0.5)),
-                w_hi=float(rng.uniform(0.3, 2.0)))
+                w_hi=float(rng.uniform(0.3, 2.0)),
+                motor_fan_in=int(rng.integers(4, 65)),
+                posture_offset=float(rng.uniform(0.12, 0.6)))
 
 
 def mutate(kw, rng):
     out = dict(kw)
     out["seed"] = int(rng.integers(1, 10 ** 6))
-    out["k_near"] = int(np.clip(out["k_near"] + rng.integers(-2, 3), 4, 24))
-    out["region_links"] = int(np.clip(out["region_links"] + rng.integers(-16, 17), 0, 128))
-    out["motor_fan_in"] = int(np.clip(out.get("motor_fan_in", 8) * rng.uniform(0.6, 1.7), 4, 64))
+    out["k_near"] = int(np.clip(out.get("k_near", 8) + rng.integers(-2, 3), 4, 24))
+    out["region_links"] = int(np.clip(out.get("region_links", 64) + rng.integers(-16, 17), 0, 128))
     for k in ("w_lo", "w_hi"):
         lo, hi = RANGES[k]
-        out[k] = float(np.clip(out[k] * rng.uniform(0.8, 1.25), lo, hi))
+        out[k] = float(np.clip(out.get(k, (lo + hi) / 2) * rng.uniform(0.8, 1.25), lo, hi))
+    out["motor_fan_in"] = int(np.clip(out.get("motor_fan_in", 8) * rng.uniform(0.6, 1.7), 4, 64))
+    out["posture_offset"] = float(np.clip(out.get("posture_offset", 0.12) * rng.uniform(0.85, 1.25), 0.12, 0.6))
     return out
 
 
@@ -51,122 +58,128 @@ def fuse(a, b):
     """出生参数按位平均（seed 不融合）。"""
     out = {"seed": int(np.random.default_rng(0).integers(1, 10 ** 6))}
     for k in PARAMS:
-        va = a.get(k, b.get(k, RANGES.get(k, (0, 1))[0]))
-        vb = b.get(k, va)
+        va = float(a.get(k, b.get(k, RANGES[k][0])))
+        vb = float(b.get(k, va))
         out[k] = (va + vb) / 2.0
-    out["k_near"] = int(round(out["k_near"]))
-    out["region_links"] = int(round(out["region_links"]))
-    out["motor_fan_in"] = int(round(out.get("motor_fan_in", 8)))
+    for k in ("k_near", "region_links", "motor_fan_in"):
+        out[k] = int(round(out[k]))
     return out
 
 
-def _eval_one(args):
-    kw, skill, ticks = args
+def _eval_candidate(args):
+    """一个候选：建一次脑，跑完全部技能。"""
+    kw, ticks = args
+    from agi.dog_tasks import _brain
     try:
-        r = run_skill(kw, skill, ticks)
-    except Exception as e:
-        r = {"ok": False, "err": f"{type(e).__name__}: {e}"}
-    metric = abs(r.get("dx", r.get("dyaw", r.get("height", 0.0))))
-    return skill, bool(r.get("ok")), float(metric)
-
-
-def evaluate(kw, skills=SKILLS, ticks=80, workers=1):
-    """返回 {skill: (ok, metric)}；workers>1 时把各技能丢进进程池并行跑。"""
-    if workers > 1 and len(skills) > 1:
-        from concurrent.futures import ProcessPoolExecutor
-        out = {}
-        with ProcessPoolExecutor(max_workers=min(workers, len(skills))) as ex:
-            for s, ok, m in ex.map(_eval_one, [(kw, s, ticks) for s in skills]):
-                out[s] = (ok, m)
-        return out
+        brain = _brain(kw)[1]
+    except Exception:
+        return kw, {s: (False, 0.0) for s in SKILLS}
     out = {}
-    for s in skills:
+    for s in SKILLS:
         try:
-            r = run_skill(kw, s, ticks)
-        except Exception as e:                     # 某道题炸了不能拖垮整轮
-            r = {"ok": False, "err": f"{type(e).__name__}: {e}"}
+            r = run_skill(kw, s, ticks, brain=brain)
+        except Exception:
+            r = {"ok": False}
         metric = abs(r.get("dx", r.get("dyaw", r.get("height", 0.0))))
         out[s] = (bool(r.get("ok")), float(metric))
-    return out
+    return kw, out
+
+
+def evaluate_many(cands, ticks=80, workers=1):
+    if workers <= 1 or len(cands) <= 1:
+        return [_eval_candidate((kw, ticks))[1] for kw in cands]
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor(max_workers=min(workers, len(cands))) as ex:
+        outs = list(ex.map(_eval_candidate, [(kw, ticks) for kw in cands]))
+    return [o[1] for o in outs]
 
 
 def rank_key(scores, ledger):
-    earned = sum(1 for s, (ok, _) in scores.items() if ok)
-    # 已获得的技能只要退化就算不合格
     broke = any(ledger.get(s) and not scores[s][0] for s in ledger)
+    earned = sum(1 for ok, _ in scores.values() if ok)
     metric = sum(m for _, m in scores.values())
     return (0 if broke else 1, earned, metric)
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--gens", type=int, default=2)
-    p.add_argument("--pop", type=int, default=3)
+    p.add_argument("--gens", type=int, default=3)
+    p.add_argument("--pop", type=int, default=8)
     p.add_argument("--ticks", type=int, default=80)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--init", default="", help="从已有模型参数起步（json，含 kw）")
     p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--init", default="")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--out", default="dog_evolve_result.json")
     a = p.parse_args(argv)
     rng = np.random.default_rng(2024 + a.seed)
 
     ledger: dict[str, int] = {}
     best = None
-    if a.init and os.path.exists(a.init):      # 从已知最好的模型起步
+    specials: dict[str, list] = {}
+    history = []
+
+    if a.init and os.path.exists(a.init):
         with open(a.init, encoding="utf-8") as f:
-            _kw = json.load(f)["kw"]
-        _sc = evaluate(_kw, ticks=a.ticks)
-        best = (rank_key(_sc, ledger), _kw, _sc)
-        for s, (ok, _) in _sc.items():
+            kw0 = json.load(f)["kw"]
+        sc = _eval_candidate((kw0, a.ticks))[1]
+        best = (rank_key(sc, ledger), kw0, sc)
+        for s, (ok, m) in sc.items():
             if ok:
                 ledger[s] = 0
-        print(f"从已有模型起步：{len(ledger)} 项技能 {list(ledger)}", flush=True)
-    history = []
-    specials: dict[str, tuple] = {}          # 每项技能的"专科状元"
+                specials.setdefault(s, []).append((m, kw0))
+        print("从已有模型起步：", len(ledger), "项", list(ledger), flush=True)
+
     for g in range(a.gens):
         if best is None:
             cands = [random_kw(rng) for _ in range(a.pop)]
         else:
-            # 综合状元（best）+ 各科状元（specials）一起繁育
-            kids = [mutate(best[1], rng)]
-            for s, sp in specials.items():
-                kids.append(mutate(sp[1], rng))                 # 专科的变异体
-                kids.append(mutate(fuse(best[1], sp[1]), rng))  # 综合×专科 融合
-            kids += [mutate(best[1], rng)
-                     for _ in range(max(0, a.pop - len(kids)))]
-            cands = kids[:max(1, a.pop)]
+            cands = [mutate(best[1], rng)]
+            for s, lst in specials.items():
+                if not lst:
+                    continue
+                top = max(lst, key=lambda x: x[0])[1]
+                cands.append(mutate(top, rng))
+                cands.append(mutate(fuse(best[1], top), rng))
+            while len(cands) < a.pop:
+                cands.append(mutate(best[1], rng))
+            cands = cands[:a.pop]
 
-        rows = []
-        for kw in cands:
-            sc = evaluate(kw, ticks=a.ticks, workers=a.workers)
-            rows.append((rank_key(sc, ledger), kw, sc))
+        scores_all = evaluate_many(cands, ticks=a.ticks, workers=a.workers)
+        rows = [(rank_key(sc, ledger), kw, sc) for kw, sc in zip(cands, scores_all)]
+        for rk, kw, sc in rows:
             got = [s for s, (ok, _) in sc.items() if ok]
-            print(f"  代{g+1} 得分 {rank_key(sc, ledger)[:2]} 通过 {got}", flush=True)
+            print(f"  代{g+1} {rk[:2]} 通过 {got}", flush=True)
         rows.sort(key=lambda r: r[0], reverse=True)
         top = rows[0]
         if best is None or top[0] > best[0]:
             best = (top[0], top[1], top[2])
-        # 更新"各科状元"：每项技能保留指标最高的那个
+
         for rk, kw, sc in rows:
             for s, (ok, m) in sc.items():
                 if not ok:
                     continue
-                cur = specials.get(s)
-                if cur is None or m > cur[2]:
-                    specials[s] = (rk, kw, m, sc)
-        # 更新清单：新技能记上代数
+                lst = specials.setdefault(s, [])
+                lst.append((m, kw))
+                lst.sort(key=lambda x: -x[0])
+                del lst[2:]
         for s, (ok, _) in top[2].items():
             if ok and s not in ledger:
                 ledger[s] = g + 1
+                print(f"  ★ 新技能 {s}（第 {g+1} 代）", flush=True)
+
         history.append({"gen": g + 1, "skills": dict(ledger),
-                        "best": best[0][:2]})
+                        "best_rank": list(best[0][:2])})
         print(f"第 {g+1} 代：技能 {len(ledger)}/{len(SKILLS)} {list(ledger)}", flush=True)
 
-    out = {"skills": ledger, "best_kw": best[1],
-           "best_rank": list(best[0][:2]), "history": history}
-    path = os.path.join(ROOT, "dog_evolve_result.json")
+    best_by_skill = {s: round(max(x[0] for x in lst), 4) for s, lst in specials.items() if lst}
+    out = {"skills": ledger, "best_by_skill": best_by_skill,
+           "best_kw": best[1] if best else None, "history": history}
+    path = os.path.join(ROOT, a.out)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
-    print("结果:", json.dumps(out["skills"], ensure_ascii=False), "→", path)
+    print("技能清单:", json.dumps(ledger, ensure_ascii=False))
+    print("各项最好指标:", json.dumps(best_by_skill, ensure_ascii=False))
+    print("已写", path)
     return 0
 
 

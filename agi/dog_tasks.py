@@ -61,7 +61,7 @@ def _run_two_sides(kw, ticks, brain=None):
     eng = brain.engine
     out = {}
     for tag, x in (("left", 0.15), ("right", 0.85)):
-        body = Go2Body(posture_offset=0.12)
+        body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
         body.reset()
         body.data.qpos[2] = 0.24
         body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
@@ -89,7 +89,7 @@ def run_skill(kw, skill, ticks=100, brain=None):
 
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
-    body = Go2Body(posture_offset=0.12)
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
     body.reset()
 
     if skill in ("getup1", "getup2", "getup"):
