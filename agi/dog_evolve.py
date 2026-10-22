@@ -29,7 +29,7 @@ PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in",
           "posture_offset", "clock_motor", "torso_force")
 RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
           "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
-          "posture_offset": (0.12, 0.6), "clock_motor": (0.0, 0.4), "torso_force": (0.0, 1.0)}
+          "posture_offset": (0.12, 1.0), "clock_motor": (0.0, 0.6), "torso_force": (0.0, 1.0)}
 
 
 def random_kw(rng):
@@ -53,11 +53,11 @@ def mutate(kw, rng):
         lo, hi = RANGES[k]
         out[k] = float(np.clip(out.get(k, (lo + hi) / 2) * rng.uniform(0.8, 1.25), lo, hi))
     out["motor_fan_in"] = int(np.clip(out.get("motor_fan_in", 8) * rng.uniform(0.6, 1.7), 4, 64))
-    out["posture_offset"] = float(np.clip(out.get("posture_offset", 0.12) * rng.uniform(0.85, 1.25), 0.12, 0.6))
+    out["posture_offset"] = float(np.clip(out.get("posture_offset", 0.12) * rng.uniform(0.85, 1.25), 0.12, 1.0))
     if rng.random() < 0.15 or out.get("clock_motor", 0.0) == 0.0:
-        out["clock_motor"] = float(np.clip(rng.uniform(0.0, 0.3), 0.0, 0.4))
+        out["clock_motor"] = float(np.clip(rng.uniform(0.0, 0.3), 0.0, 0.6))
     else:
-        out["clock_motor"] = float(np.clip(out["clock_motor"] * rng.uniform(0.8, 1.3), 0.0, 0.4))
+        out["clock_motor"] = float(np.clip(out["clock_motor"] * rng.uniform(0.8, 1.3), 0.0, 0.6))
     out["torso_force"] = float(np.clip(out.get("torso_force", 0.0) * rng.uniform(0.8, 1.25), 0.0, 1.0))
     return out
 
@@ -102,11 +102,22 @@ def evaluate_many(cands, ticks=80, workers=1):
     return [o[1] for o in outs]
 
 
+# 每项技能的达标线：用来把"离通过多远"归一化，避免某些技能因量纲大而主导
+NEEDS = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10,
+         "walk_to_ball": 0.03, "turn1": 0.05, "turn2": 0.15,
+         "getup0": 0.15, "getup1": 0.18, "getup2": 0.22,
+         "follow": 0.004, "obstacle": 0.02, "march": 0.03}
+
+
 def rank_key(scores, ledger):
     broke = any(ledger.get(s) and not scores[s][0] for s in ledger)
     earned = sum(1 for ok, _ in scores.values() if ok)
-    metric = sum(m for _, m in scores.values())
-    return (0 if broke else 1, earned, metric)
+    # 归一化进度：每项 metric/门槛（封顶 1.2），这样 getup 的 0.155 也有一票
+    prog = 0.0
+    for s, (ok, m) in scores.items():
+        need = NEEDS.get(s, 0.05)
+        prog += 1.2 if ok else min(m / max(1e-6, need), 1.2)
+    return (0 if broke else 1, earned, round(prog, 4))
 
 
 def main(argv=None) -> int:
