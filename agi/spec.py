@@ -92,6 +92,7 @@ class Spec:
     pfc_gain_div: float = 0.0
     # 区与区之间的直连：每对相邻区两个方向各这么多条，出生固定、不参与学习
     region_links: int = 64
+    n_time: int = 512                             # 海马体时间环的格子数（0 = 不加）
     # 回程闸门：每拍只让前额叶最强的几条信号通过（回程随思考焦点移动）
     return_gate: int = 32
     return_gate_k: int = 6

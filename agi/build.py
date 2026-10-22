@@ -533,6 +533,16 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                 eng.connect(pick_d, pick_s, rng.uniform(0.2, 0.3, n),
                             group=G.REGION_LINK)
 
+    # ---- 海马体时间环：固定长度、每拍恰好一个亮 ----
+    if spec.n_time > 0:
+        tt = eng.add_block(int(spec.n_time), kind="pfc", region="time", depth=0,
+                           thr=0.0, soft=1.0,
+                           pos=np.stack([np.full(int(spec.n_time), 0.95, np.float32),
+                                         np.linspace(0.0, 1.0, int(spec.n_time),
+                                                     dtype=np.float32),
+                                         np.full(int(spec.n_time), 0.5, np.float32)], 1))
+        ids["time"] = tt
+
     # ---------------------------------------------------------- 5. 收尾
     eng.finalize()
     pfc_all = np.concatenate([v for v in pfc_groups.values()] + [mpfc])
@@ -540,6 +550,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     brain = Brain(engine=eng, spec=spec, geo=geo, ids=ids, layers=layers,
                   pfc_ids=pfc_all, pfc_groups=pfc_groups, motor=motor,
                   encoder=enc)
+    if "time" in ids:
+        from .hippocampus import TimeRing
+        brain.time_ring = TimeRing(ids["time"])     # 海马体时间环
     if spec.threshold_theta <= 0:
         calibrate_layers(brain)   # 阈值模式下门槛由权重相对阈值定，不再用分位标定
     if spec.pfc_filter:

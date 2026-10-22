@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """主循环：感觉 → 编码 → 大脑走几小步 → 肌肉 → 身体 → 新感觉。
 
 一拍（50 Hz，20 ms）做这些事，顺序固定：
@@ -88,6 +88,9 @@ class Cortex:
         t0 = time.perf_counter()
         buf = self.brain.encoder.encode(obs)
         self.engine.clear_external()
+        ring = getattr(self.brain, "time_ring", None)
+        if ring is not None:
+            ring.step(self.engine)          # 海马体：每拍恰好一个时间神经元亮
         self.engine.set_input(buf)
         t1 = time.perf_counter()
         for _ in range(max(1, int(sp.substeps))):
