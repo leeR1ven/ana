@@ -68,7 +68,7 @@ class Spec:
     self_copy: bool = True
     bias_scale: float = 0.0                     # 每个神经元固定的随机偏置（local3d 的做法）
     # >0：用"权重相对阈值" θ·(|b|+Σ|w|) 决定谁亮，关掉 top-k（local3d 的 THRESHOLD_ACTIVATION）
-    threshold_theta: float = 0.0   # 默认 top-k；阈值模式见 docs/AUDIT_CODE.md（θ=0.7 + pfc_fan_in=4 + pfc_ratio=0.25）                     # 每个神经元额外接"上一层同一位置"一条（local3d 的自身拷贝）
+    threshold_theta: float = 0.5   # 默认：权重相对阈值 + 逐级分位标定，不用 top-k                     # 每个神经元额外接"上一层同一位置"一条（local3d 的自身拷贝）
     l1_active: float = 0.50                     # L1 活跃比例（ON/OFF 各半）
     layer_active: tuple = (0.40, 0.30, 0.20, 0.10)  # L2..L5 的 top-k 比例
     # ---- 前额叶 ----
