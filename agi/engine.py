@@ -58,6 +58,7 @@ class EngineConfig:
     gain_lr: float = 0.002        # 整体阈值调控速度
     gain_range: tuple = (-0.05, 0.05)   # 只许微调（±0.5 会把深层压死）
     target_active: int = 0        # 0 = 不调控
+    quant: float = 0.0            # >0：驱动先量化到这个精度再比阈值（去掉浮点抖动）
     gain_div: float = 0.0         # 除法式增益 γ：亮的越多，整体越难再推高（字神经元网络的做法）
     gain_div_ids: tuple = ()      # 只对这一批神经元做除法增益（一般给前额叶）
     backend: str = "auto"         # auto | torch | numpy
@@ -423,7 +424,9 @@ class Engine:
             if self.cfg.gain_div > 0.0 and self._gd_ids is not None:
                 s = float(self._act_t[self._gd_ids].sum())
                 b[self._gd_ids] *= 1.0 / (1.0 + self.cfg.gain_div * s)
-            self.last_drive = b          # 上一拍的驱动（只读、下一拍会被覆盖）
+            if self.cfg.quant > 0:
+                b = torch.round(b / self.cfg.quant) * self.cfg.quant
+            self.last_drive = b
             return b
         d = np.bincount(self.dst, weights=self.wp * self.sgn * self.act[self.src],
                         minlength=self._n).astype(np.float32)
