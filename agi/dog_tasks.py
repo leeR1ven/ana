@@ -54,7 +54,38 @@ def _ball(sp, x_norm):
                             (0.95, 0.2, 0.1)))
 
 
+def _run_two_sides(kw, ticks):
+    """朝球走：同一模型，球在左 vs 在右各跑一次，横向位移必须不同。"""
+    sp, brain = _brain(kw)
+    eng = brain.engine
+    out = {}
+    for tag, x in (("left", 0.15), ("right", 0.85)):
+        body = Go2Body(posture_offset=0.12)
+        body.reset()
+        body.data.qpos[2] = 0.24
+        body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+        body.mj.mj_forward(body.model, body.data)
+        x0, y0 = float(body.data.qpos[0]), float(body.data.qpos[1])
+        img = _ball(sp, x)
+        for _ in range(ticks):
+            eng.clear_external()
+            eng.set_input(brain.encoder.encode(_obs(sp, img)))
+            eng.step()
+            body.step(brain.forces())
+        out[tag] = dict(dx=float(body.data.qpos[0]) - x0,
+                        dy=float(body.data.qpos[1]) - y0,
+                        fallen=bool(body.fallen()))
+    dy_side = out["left"]["dy"] - out["right"]["dy"]
+    ok = (not out["left"]["fallen"] and not out["right"]["fallen"]
+          and abs(out["left"]["dx"]) > 0.02 and abs(dy_side) > 0.01)
+    return dict(ok=ok, dx=out["left"]["dx"], dy_side=dy_side,
+                fallen=out["left"]["fallen"] or out["right"]["fallen"])
+
+
 def run_skill(kw, skill, ticks=100):
+    if skill == "walk_to_ball":
+        return _run_two_sides(kw, ticks)
+
     sp, brain = _brain(kw)
     eng = brain.engine
     body = Go2Body(posture_offset=0.12)
