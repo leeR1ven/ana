@@ -593,6 +593,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
               f"（v0 期望都是 0）")
         for r, L in layers.items():
             print(f"   {r:9s} 每拍选中 {L.k:5d} / {L.size:5d}")
+    if spec.threshold_theta > 0:
+        # 放在最后再设一遍：所有分位标定/增益都已经跑完，此时设才不会被打回
+        _apply_theta_last(brain, spec)
     return brain
 
 
@@ -817,4 +820,44 @@ def _calibrate_by_theta(brain: "Brain", spec) -> None:
     eng.set_thr(i, thr=(th * mass[i]).astype(np.float32),
                 soft=(so * mass[i]).astype(np.float32))
     _run()
+    eng.act[:] = 0.0
+def _apply_theta_last(brain: "Brain", spec) -> None:
+    """最后一遍：按"层(浅→深) → 中继 → 前额叶"设权重相对阈值 θ·(|b|+Σ|w|)。"""
+    eng = brain.engine
+    mass = np.maximum(eng.in_weight_sum() + eng.bias, 1e-6)
+    th = float(spec.threshold_theta)
+    enc = brain.encoder
+    rng = np.random.default_rng(spec.seed + 91)
+    obs = [type("O", (), dict(
+        vision=rng.random((spec.px, spec.px, 3), dtype=np.float32),
+        audio=rng.random((spec.audio_bands, spec.audio_frames), np.float32),
+        touch=np.full(spec.touch_ch, 0.4, np.float32),
+        proprio=np.full(spec.proprio_ch, 0.5, np.float32),
+        balance=np.full(spec.balance_ch, 0.5, np.float32)))() for _ in range(3)]
+
+    def _run(n: int = 8) -> None:
+        for o in obs:
+            for _ in range(n):
+                eng.clear_external()
+                eng.set_input(enc.encode(o))
+                eng.step()
+
+    for depth in sorted({L.depth for L in brain.layers.values()}):
+        for L in brain.layers.values():
+            if L.depth == depth:
+                i = L.ids
+                eng.set_thr(i, thr=(th * mass[i]).astype(np.float32),
+                            soft=(0.05 * mass[i]).astype(np.float32))
+        _run()
+    rel_map = brain.ids.get("relay", {})
+    if rel_map:
+        rel = np.concatenate([np.asarray(v).ravel() for v in rel_map.values()])
+        eng.set_thr(rel, thr=(0.5 * mass[rel]).astype(np.float32),
+                    soft=(0.02 * mass[rel]).astype(np.float32))
+        _run()
+    pfc = np.asarray(brain.pfc_ids)
+    eng.set_thr(pfc, thr=(th * mass[pfc]).astype(np.float32),
+                soft=(0.05 * mass[pfc]).astype(np.float32))
+    _run()
+    eng.cfg.target_active = 0
     eng.act[:] = 0.0
