@@ -540,7 +540,8 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     brain = Brain(engine=eng, spec=spec, geo=geo, ids=ids, layers=layers,
                   pfc_ids=pfc_all, pfc_groups=pfc_groups, motor=motor,
                   encoder=enc)
-    calibrate_layers(brain)
+    if spec.threshold_theta <= 0:
+        calibrate_layers(brain)   # 阈值模式下门槛由权重相对阈值定，不再用分位标定
     if spec.pfc_filter:
         # 常亮/常灭的神经元不带"是哪一个输入"的信息，不往前额叶送。
         # 必须在标定之前做：否则门槛会把死单元也算进分位数。

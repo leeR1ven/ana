@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """ANA 规格：规模、几何、层计划。
 
 这里只放"架构上是什么"，不放"怎么算"。所有数字都能被改，改完 `validate()`
@@ -214,6 +214,9 @@ class ScalePreset:
         d = dict(px=self.px, n_level=self.n_level, pfc_ratio=self.pfc_ratio,
                  audio_bands=self.audio_bands, audio_frames=self.audio_frames)
         d.update(kw)                      # 允许覆盖预设里的任何字段
+        if float(d.get("threshold_theta", Spec().threshold_theta)) > 0:
+            d["pfc_topk"] = 0.0           # 阈值模式不再需要名额
+            d["layer_active"] = (0.999, 0.999, 0.999, 0.999)
         return replace(Spec(), **d)
 
 
