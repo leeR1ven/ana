@@ -658,6 +658,26 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                           depth=0, thr=0.1, soft=0.5,
                                           pos=_pos, counted=False)
 
+    # ---- 海马体：和"前额叶"同一种机制（汇聚 + 可塑连接），只是输入来自各区 L5 ----
+    # 用户：海马体和前额叶机制很像 —— 都是"把下层链式信号汇聚起来，再靠连接承载内容"。
+    _hs = int(getattr(spec, "hippo_size", 0))
+    if _hs > 0:
+        hippo = eng.add_block(_hs, kind="pfc", region="hippo", depth=0,
+                              thr=0.0, soft=1.0,
+                              pos=_band_pos(geo, "motor", _hs, rng, geo.x_pfc))
+        _str = {"vision": 1.0, "audio": 0.9, "touch": 0.25, "proprio": 0.2, "balance": 0.2}
+        for _name, _L in layers.items():
+            if not _name.endswith(".L5"):
+                continue
+            _r = _name.split(".")[0]
+            _w = _str.get(_r, 0.2)
+            _pick = _sample_no_replace(rng, _L.ids, _hs, 6)
+            eng.connect(np.repeat(hippo, 6), np.asarray(_pick).reshape(-1),
+                        rng.uniform(0.05, 0.15, _hs * 6) * _w, group=90)
+        eng.set_thr(hippo, thr_frac=0.25, soft_frac=0.3)
+        motor["hippo"] = hippo
+        ids["hippo"] = hippo
+
     # ---- 海马体时间环：固定长度、每拍恰好一个亮 ----
     if spec.n_time > 0:
         tt = eng.add_block(int(spec.n_time), kind="pfc", region="time", depth=0,
