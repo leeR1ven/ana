@@ -987,3 +987,10 @@ walk0/1/2/3, walk_to_ball, turn1, turn2, getup0/1/2, follow, obstacle, march  = 
 | 2.0 | 0.175 | 0.001 | 0.01 | ✅ |
 
 **13/13 全部达成。**
+
+### 题库扩到 19 项（第二档），17/19（2026-10-22）
+
+新增 6 项更难：`walk4`(20cm)、`walk5`(30cm)、`turn3`(0.30rad)、`getup3`(0.35m)、`follow2`(0.010)、`obstacle2`(比值<0.40)。
+
+第一代就过 17 项（`walk4`、`walk5`、`getup3`、`follow2` 直接通过）；
+还差 **`turn3`**（偏航 0.30，现在约 0.37 的 turn2 已过、turn3 未过）和 **`obstacle2`**（比值 <0.40，现在 0.24 应该能过，待查）。

@@ -108,9 +108,11 @@ def evaluate_many(cands, ticks=80, workers=1):
 
 # 每项技能的达标线：用来把"离通过多远"归一化，避免某些技能因量纲大而主导
 NEEDS = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10,
-         "walk_to_ball": 0.03, "turn1": 0.05, "turn2": 0.15,
-         "getup0": 0.15, "getup1": 0.18, "getup2": 0.22,
-         "follow": 0.004, "obstacle": 0.02, "march": 0.03}
+         "walk4": 0.20, "walk5": 0.30, "walk_to_ball": 0.03,
+         "turn1": 0.05, "turn2": 0.15, "turn3": 0.30,
+         "getup0": 0.15, "getup1": 0.18, "getup2": 0.22, "getup3": 0.35,
+         "follow": 0.004, "follow2": 0.010,
+         "obstacle": 0.02, "obstacle2": 0.02, "march": 0.03}
 
 
 def rank_key(scores, ledger):

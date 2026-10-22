@@ -21,8 +21,9 @@ from agi.body_go2 import Go2Body           # noqa: E402
 from agi.encoding import Observation       # noqa: E402
 
 
-SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk_to_ball",
-          "turn1", "turn2", "getup0", "getup1", "getup2", "follow", "obstacle", "march")
+SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
+          "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
+          "follow", "follow2", "obstacle", "obstacle2", "march")
 
 
 def _brain(kw, preset="small"):
@@ -171,10 +172,10 @@ def _run_two_sides(kw, ticks, brain=None):
 def run_skill(kw, skill, ticks=100, brain=None):
     if skill == "walk_to_ball":
         return _run_two_sides(kw, ticks, brain=brain)
-    if skill == "follow":
-        return _run_follow(kw, ticks, brain=brain)
-    if skill == "obstacle":
-        return _run_obstacle(kw, ticks, brain=brain)
+    if skill in ("follow", "follow2"):
+        return _run_follow(kw, ticks, brain=brain, strict=(skill == "follow2"))
+    if skill in ("obstacle", "obstacle2"):
+        return _run_obstacle(kw, ticks, brain=brain, strict=(skill == "obstacle2"))
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -183,7 +184,7 @@ def run_skill(kw, skill, ticks=100, brain=None):
     body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
     body.reset()
 
-    if skill in ("getup0", "getup1", "getup2", "getup"):
+    if skill in ("getup0", "getup1", "getup2", "getup3", "getup"):
         # 第 13 条执行器：躯干翻滚（力度由 torso_force 控制）
         body.torso_cmd = float(kw.get("torso_force", 0.0))
         body.data.qpos[2] = 0.10
@@ -198,13 +199,13 @@ def run_skill(kw, skill, ticks=100, brain=None):
 
     heights, xs, yaws = [], [], []
     for t in range(ticks):
-        if skill in ("walk0", "walk1", "walk2", "walk3"):
+        if skill in ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5"):
             # 偏心的球 = 方向线索；居中画面时模型没有理由动（实测 0.008 vs 0.30）
             img = _ball(sp, 0.85)
         elif skill == "walk_to_ball":
             frac = t / max(1, ticks - 1)
             img = _ball(sp, 0.85 - 0.6 * frac)       # 球从右边逐渐靠近中心
-        elif skill in ("turn1", "turn2", "turn_to_ball"):
+        elif skill in ("turn1", "turn2", "turn3", "turn_to_ball"):
             img = _ball(sp, 0.85)
         else:
             img = None
@@ -219,17 +220,19 @@ def run_skill(kw, skill, ticks=100, brain=None):
     dx = xs[-1] - x0
     dyaw = yaws[-1] - yaw0
     fallen = bool(body.fallen())
-    if skill in ("walk0", "walk1", "walk2", "walk3"):   # 难度档：1.5/3/5/10 厘米
-        need = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10}[skill]
+    if skill in ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5"):
+        need = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10,
+                "walk4": 0.20, "walk5": 0.30}[skill]
         return dict(ok=(not fallen) and abs(dx) > need, dx=dx, fallen=fallen)
     if skill == "walk_to_ball":
         return dict(ok=(not fallen) and abs(dx) > 0.03, dx=dx, fallen=fallen)
-    if skill in ("turn1", "turn2", "turn_to_ball"):
-        need = {"turn1": 0.05, "turn2": 0.15, "turn_to_ball": 0.15}[skill]
+    if skill in ("turn1", "turn2", "turn3", "turn_to_ball"):
+        need = {"turn1": 0.05, "turn2": 0.15, "turn3": 0.30, "turn_to_ball": 0.15}[skill]
         return dict(ok=(not fallen) and abs(dyaw) > need, dyaw=dyaw, fallen=fallen)
-    if skill in ("getup0", "getup1", "getup2", "getup"):
+    if skill in ("getup0", "getup1", "getup2", "getup3", "getup"):
         h = float(np.mean(heights[-20:]))
-        need = {"getup0": 0.15, "getup1": 0.18, "getup2": 0.22, "getup": 0.20}[skill]
+        need = {"getup0": 0.15, "getup1": 0.18, "getup2": 0.22,
+                "getup3": 0.35, "getup": 0.20}[skill]
         # 起身本来就是从"躺着"开始，用 fallen 判会永远不过——只看"起来多高"
         return dict(ok=h > need, height=h, fallen=fallen)
     return dict(ok=False)
@@ -247,7 +250,7 @@ def _ball_moving(sp, x0, x1, frac):
     return _ball(sp, x0 + (x1 - x0) * frac)
 
 
-def _run_follow(kw, ticks, brain=None):
+def _run_follow(kw, ticks, brain=None, strict=False):
     """跟随：球左右扫，两个方向各跑一次，横向位移必须相反（跟着球走）。"""
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
@@ -267,10 +270,11 @@ def _run_follow(kw, ticks, brain=None):
             body.step(brain.forces())
         out[tag] = float(body.data.qpos[1]) - y0
     diff = out["lr"] - out["rl"]
-    return dict(ok=abs(diff) > 0.004, dy_follow=diff, fallen=False)
+    need = 0.010 if strict else 0.004
+    return dict(ok=abs(diff) > need, dy_follow=diff, fallen=False)
 
 
-def _run_obstacle(kw, ticks, brain=None):
+def _run_obstacle(kw, ticks, brain=None, strict=False):
     """避障：正前方有黑色障碍时，前进量必须明显小于没有障碍时。"""
     sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
     eng = brain.engine
@@ -301,7 +305,7 @@ def _run_obstacle(kw, ticks, brain=None):
     d0, f0 = episode(False)
     d1, f1 = episode(True)
     # 判据改成"看见障碍就收力"——位移主要来自滑动，用它判测不出东西
-    ok = f1 < f0 * 0.75
+    ok = f1 < f0 * (0.40 if strict else 0.75)
     return dict(ok=ok, dx_free=d0, dx_wall=d1, force_free=f0, force_wall=f1, fallen=False)
 
 def _run_march(kw, ticks, brain=None):
