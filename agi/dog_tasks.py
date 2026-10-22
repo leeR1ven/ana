@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "shake", "orbit", "reach", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
+          "back", "tilt", "shake", "orbit", "reach", "gait", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto", "goto2")
 
 
 def _brain(kw, preset="small"):
@@ -271,6 +271,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_orbit(kw, ticks, brain=brain)
     if skill == "reach":
         return _run_reach(kw, ticks, brain=brain)
+    if skill == "gait":
+        return _run_gait(kw, ticks, brain=brain)
     if skill == "goto2":
         return _run_goto2(kw, ticks, brain=brain)
     if skill == "march":
@@ -450,6 +452,44 @@ def _run_goto2(kw, ticks, brain=None):
     a, b, c = out[0.10], out[0.18], out[0.26]
     ok = (a > b > c) and (a - c) > 0.015
     return dict(ok=bool(ok), far=float(a), mid=float(b), near=float(c), fallen=False)
+
+
+def _run_gait(kw, ticks, brain=None):
+    """真走路：不飞、不翻，而且四条腿不能同相（对角腿要反相）。
+
+    这是对"位移>阈值"的纠正：位移可以被晃动/漂移/翻车满足，相位不能。
+    """
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.27
+    body.data.qpos[7:19] = np.array([0.0, 0.9, -1.8] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    hs, qs = [], []
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+        hs.append(float(body.data.qpos[2]))
+        qs.append(body.data.qpos[7:19].copy())
+    q = np.stack(qs)
+    q = q - q.mean(0)
+    leg = np.stack([q[:, 0:3].mean(1), q[:, 3:6].mean(1),
+                    q[:, 6:9].mean(1), q[:, 9:12].mean(1)])
+
+    def corr(a, b):
+        return float((a * b).sum() / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+
+    diag = (corr(leg[0], leg[3]) + corr(leg[1], leg[2])) / 2     # 对角腿相关
+    amp = float(np.degrees(q.max(0) - q.min(0)).mean())
+    dx = abs(float(body.data.qpos[0]) - x0)
+    hi = max(hs)
+    ok = (hi < 0.45) and (diag < 0.30) and (amp > 8.0) and (dx > 0.05)
+    return dict(ok=bool(ok), dx=dx, maxh=float(hi), diag=float(diag),
+                amp=amp, fallen=bool(body.fallen()))
 
 
 def _run_reach(kw, ticks, brain=None):
