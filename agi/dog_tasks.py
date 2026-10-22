@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase")
+          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze")
 
 
 def _brain(kw, preset="small"):
@@ -195,6 +195,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_detour(kw, ticks, brain=brain)
     if skill == "chase":
         return _run_chase(kw, ticks, brain=brain)
+    if skill == "gaze":
+        return _run_gaze(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -291,6 +293,31 @@ def _run_follow(kw, ticks, brain=None, strict=False):
     diff = out["lr"] - out["rl"]
     need = 0.010 if strict else 0.004
     return dict(ok=abs(diff) > need, dy_follow=diff, fallen=False)
+
+
+def _run_gaze(kw, ticks, brain=None):
+    """眼睛追随：物体在画面右侧，脑用整体激活水平驱动"眼动"通道，
+    把注视点转到物体上（目标红心落在画面中心 ±0.10）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    center = 0.5
+    for _ in range(ticks):
+        f = brain.forces()
+        pan = float(np.clip(2.0 * float(np.mean(f)) - 1.0, -1.0, 1.0))
+        x = float(np.clip(0.90 - 0.45 * pan, 0.05, 0.95))
+        img = _ball(sp, x)
+        center = _red_center(img)
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, img)))
+        eng.step()
+        body.step(f)
+    err = abs(center - 0.5)
+    return dict(ok=bool(err < 0.10), center=float(center), err=float(err), fallen=False)
 
 
 def _run_jump(kw, ticks, brain=None):
