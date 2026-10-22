@@ -228,14 +228,19 @@ class PlasticRule:
                 b = newly[self.rng.integers(0, len(newly), k)]
                 keep = a != b
                 self._apply_pairs(engine, a[keep], b[keep], cfg.eta_sim)
-        # 按目标写的互抑制：只针对"这个源自己的实际目标"，不是随机采样
+        # 按目标写的互抑制：只针对"这个源自己的实际目标"，而且只在
+        # **目标这一拍根本没被驱动** 时才罚（区分"名额被挤掉"和"真的没关系"）
         if self.cfg.inh_targets and len(pre):
             idx = np.flatnonzero(engine.group == self.cfg.group)
             if len(idx):
                 s, dd = engine.src[idx], engine.dst[idx]
-                recent = (self._recent_any if self._recent_any.size == engine.n
-                          else np.zeros(engine.n, bool))
-                m = np.isin(s, pre) & ~recent[dd]
+                ld = getattr(engine, "last_drive", None)
+                if ld is not None:
+                    ldv = ld if isinstance(ld, np.ndarray) else ld.detach().cpu().numpy()
+                    not_driven = ldv[dd] <= 0.0
+                else:
+                    not_driven = ~np.isin(dd, cur)
+                m = np.isin(s, pre) & not_driven
                 if m.any():
                     engine.w[idx[m]] *= (1.0 - self.cfg.fail_decay)   # 带不亮对方 → 变弱
                     self._anti_batch.append((s[m].copy(), dd[m].copy()))
