@@ -235,32 +235,8 @@ class PlasticRule:
                 b = newly[self.rng.integers(0, len(newly), k)]
                 keep = a != b
                 self._apply_pairs(engine, a[keep], b[keep], cfg.eta_sim)
-        # 按目标写的互抑制：只针对"这个源自己的实际目标"，而且只在
-        # **目标这一拍根本没被驱动** 时才罚（区分"名额被挤掉"和"真的没关系"）
-        if self.cfg.inh_targets and len(pre):
-            idx = np.flatnonzero(engine.group == self.cfg.group)
-            if len(idx):
-                s, dd = engine.src[idx], engine.dst[idx]
-                tr = self._trace
-                if tr.size == engine.n:
-                    # 目标"最近没亮过"（痕迹低）才算真的没关系；痕迹高则可能是被名额挤掉
-                    not_driven = tr[dd] <= self.cfg.trace_thr
-                else:
-                    not_driven = ~np.isin(dd, cur)
-                m = np.isin(s, pre) & not_driven
-                if m.any():
-                    engine.w[idx[m]] *= (1.0 - self.cfg.fail_decay)   # 带不亮对方 → 变弱
-                    self._anti_batch.append((s[m].copy(), dd[m].copy()))
-        # 互抑制：源亮、目标没亮 → 长负连接（很少一起出现才长）
-        if self.cfg.anti_learn and len(pre):
-            cand = cur if len(cur) else prev
-            n = engine.n
-            a = pre[self.rng.integers(0, len(pre), min(len(pre) * self.cfg.n_anti, 4096))]
-            b = cand[self.rng.integers(0, len(cand), len(a))]
-            keep = a != b
-            for k in (a[keep].astype(np.int64) * n + b[keep].astype(np.int64)).tolist():
-                v = max(-self.cfg.anti_max, self._anti.get(k, 0.0) - self.cfg.anti_eta)
-                self._anti[k] = v
+        # 互抑制/目标级抑制已删：三种判据（选中、窗口、驱动）实测都无效或有害，
+        # 原因写在 docs/AUDIT_CODE.md 第 24 节；这里只保留内核需要的规则。
         return self._grown, self._strengthened
 
     def _apply_pairs(self, engine, src: np.ndarray, dst: np.ndarray, eta: float) -> None:
