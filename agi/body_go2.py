@@ -64,7 +64,10 @@ class Go2Body:
     def _pd_step(self) -> None:
         q = self.data.qpos[7:19]
         qd = self.data.qvel[6:18]
-        target = self.q_stand + self.posture_offset * self.forces
+        f = self.forces
+        if os.environ.get('ANA_BIDIR', '0') == '1':
+            f = 2.0 * f - 1.0          # 双向：-1..1，能往回蹬
+        target = self.q_stand + self.posture_offset * f
         tau = self.kp * (target - q) - self.kd * qd
         self.data.ctrl[:] = np.clip(tau, self.ctrl_lo, self.ctrl_hi)
 
