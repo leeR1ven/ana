@@ -373,6 +373,7 @@ if __name__ == "__main__":
 # 运动、规则类需要 mujoco（只在系统 Python 里有），所以走子进程，不混进主环境。
 _EXTERNAL = (
     ("运动", "站立不摔", "experiments/p5_stand.py --ticks 80", "摔倒 False"),
+    ("运动", "被推不摔", "experiments/p22_push.py --ticks 100", "被推后站住 True"),
     ("规则", "名字→动作", "experiments/p14_rule_table.py", "规则表可用"),
 )
 
