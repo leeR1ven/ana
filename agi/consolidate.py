@@ -73,3 +73,17 @@ class Consolidator:
                            group=self.group)
         self.eng.rebuild_backend()
         return len(ks)
+
+
+def recall_readout(engine, ids, margin: float = 8.0, floor: float = 0.5):
+    """回忆读出：不参与名额竞争，只看"驱动明显高于背景"的单元。
+
+    为什么单独一条：扩维层每拍只有 2% 的名额，点 A 时名额被 A 自己占满，
+    被联想起来的 B 即使驱动是门槛的 200 倍也进不了"亮的名单"。
+    真实的回忆本来就该是另一条读出路，不该跟当前感知抢名额。
+    """
+    d = np.asarray(engine.drive())[np.asarray(ids)]
+    base = float(np.median(d)) + 1e-9
+    thr = max(float(floor), base * float(margin))
+    ids = np.asarray(ids)
+    return set(ids[d > thr].tolist())
