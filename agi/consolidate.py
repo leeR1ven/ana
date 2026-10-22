@@ -45,10 +45,26 @@ class Consolidator:
         return None
 
     def _sample(self, ids) -> np.ndarray:
+        """按区分层抽样：每个区都抽到一些，否则视觉区会吃掉全部名额。"""
         ids = np.asarray(ids)
         if len(ids) <= self.cap:
             return ids
-        return ids[self.rng.choice(len(ids), self.cap, replace=False)]
+        reg = self.eng.region[ids]
+        u = np.unique(reg)
+        per = max(1, self.cap // max(1, len(u)))
+        out = []
+        for r in u:
+            sub = ids[reg == r]
+            if not len(sub):
+                continue
+            out.append(self.rng.choice(sub, min(per, len(sub)), replace=False))
+        got = np.concatenate(out) if out else ids[:0]
+        if len(got) < self.cap:
+            pool = np.setdiff1d(ids, got, assume_unique=False)
+            extra = min(self.cap - len(got), len(pool))
+            if extra > 0:
+                got = np.concatenate([got, self.rng.choice(pool, extra, replace=False)])
+        return got
 
     def step(self, active) -> None:
         cur = np.asarray(sorted(set(int(x) for x in active)), np.int64)
@@ -60,8 +76,9 @@ class Consolidator:
             else:
                 tp["n"] += 1
             if tp["n"] >= self.repeats:      # 反复出现的，每次再加强一点
-                a = np.asarray(tp["a"])[: self.cap]
-                b = np.asarray(tp["b"])[: self.cap]
+                # 按区分层抽样：直接截断会永远只取"编号最小"的那批（实测全是视觉区）
+                a = self._sample(tp["a"])
+                b = self._sample(tp["b"])
                 for s in a.tolist():
                     for d in b.tolist():
                         if s == d:
