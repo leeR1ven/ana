@@ -112,7 +112,9 @@ NEEDS = {"walk0": 0.015, "walk1": 0.03, "walk2": 0.05, "walk3": 0.10,
          "turn1": 0.05, "turn2": 0.15, "turn3": 0.30,
          "getup0": 0.15, "getup1": 0.18, "getup2": 0.22, "getup3": 0.35,
          "follow": 0.004, "follow2": 0.010,
-         "obstacle": 0.02, "obstacle2": 0.02, "march": 0.03}
+         "obstacle": 0.02, "obstacle2": 0.02, "march": 0.03,
+         "back": 0.03, "tilt": 0.25, "lie": 0.12,
+         "spin": 6.28, "crawl": 0.05, "shake": 0.01}
 
 
 def rank_key(scores, ledger):

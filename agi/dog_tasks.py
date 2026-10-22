@@ -23,7 +23,8 @@ from agi.encoding import Observation       # noqa: E402
 
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
-          "follow", "follow2", "obstacle", "obstacle2", "march")
+          "follow", "follow2", "obstacle", "obstacle2", "march",
+          "back", "tilt", "lie", "spin", "crawl", "shake")
 
 
 def _brain(kw, preset="small"):
@@ -176,6 +177,18 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_follow(kw, ticks, brain=brain, strict=(skill == "follow2"))
     if skill in ("obstacle", "obstacle2"):
         return _run_obstacle(kw, ticks, brain=brain, strict=(skill == "obstacle2"))
+    if skill == "back":
+        return _run_back(kw, ticks, brain=brain)
+    if skill == "tilt":
+        return _run_tilt(kw, ticks, brain=brain)
+    if skill == "lie":
+        return _run_lie(kw, ticks, brain=brain)
+    if skill == "spin":
+        return _run_spin(kw, ticks, brain=brain)
+    if skill == "crawl":
+        return _run_crawl(kw, ticks, brain=brain)
+    if skill == "shake":
+        return _run_shake(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -272,6 +285,131 @@ def _run_follow(kw, ticks, brain=None, strict=False):
     diff = out["lr"] - out["rl"]
     need = 0.010 if strict else 0.004
     return dict(ok=abs(diff) > need, dy_follow=diff, fallen=False)
+
+
+def _run_spin(kw, ticks, brain=None):
+    """原地转圈：累计偏航超过 2π（转满一圈）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    total = 0.0
+    prev = float(body.state()["yaw"])
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+        cur = float(body.state()["yaw"])
+        d = (cur - prev + np.pi) % (2 * np.pi) - np.pi
+        total += d
+        prev = cur
+    return dict(ok=(not body.fallen()) and abs(total) > 2 * np.pi,
+                spin=float(total), fallen=bool(body.fallen()))
+
+
+def _run_crawl(kw, ticks, brain=None):
+    """低姿爬行：全程高度低于 0.16，但仍有位移。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.14
+    body.data.qpos[7:19] = np.array([0.0, 1.6, -2.6] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    hs = []
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+        hs.append(float(body.state()["height"]))
+    dx = float(body.data.qpos[0]) - x0
+    return dict(ok=(float(np.mean(hs)) < 0.20) and abs(dx) > 0.05,
+                dx=dx, h=float(np.mean(hs)), fallen=bool(body.fallen()))
+
+
+def _run_shake(kw, ticks, brain=None):
+    """甩身：机身的横向速度来回变化（左右甩动的幅度）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    ys = []
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+        ys.append(float(body.data.qpos[1]))
+    amp = float(np.std(ys))
+    return dict(ok=amp > 0.01, amp=amp, fallen=bool(body.fallen()))
+
+
+def _run_back(kw, ticks, brain=None):
+    """后退：同样给"前方有方向线索"的输入，要求往后退（dx 为负）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+    dx = float(body.data.qpos[0]) - x0
+    return dict(ok=(not body.fallen()) and dx < -0.03, dx=dx, fallen=bool(body.fallen()))
+
+
+def _run_tilt(kw, ticks, brain=None):
+    """倾倒自救：从侧倾 0.5 弧度起步，要求最后站正且不摔。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.26
+    r = 0.5
+    body.data.qpos[3:7] = np.array([np.cos(r / 2), np.sin(r / 2), 0.0, 0.0])
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+    st = body.state()
+    ok = (not body.fallen()) and abs(st["roll"]) < 0.25 and st["height"] > 0.22
+    return dict(ok=bool(ok), roll=float(st["roll"]), height=float(st["height"]),
+                fallen=bool(body.fallen()))
+
+
+def _run_lie(kw, ticks, brain=None):
+    """趴下：从站姿开始，要求最后趴低（高度 < 0.12）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.26
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+    h = float(body.state()["height"])
+    return dict(ok=h < 0.12, height=h, fallen=bool(body.fallen()))
 
 
 def _run_obstacle(kw, ticks, brain=None, strict=False):

@@ -994,3 +994,10 @@ walk0/1/2/3, walk_to_ball, turn1, turn2, getup0/1/2, follow, obstacle, march  = 
 
 第一代就过 17 项（`walk4`、`walk5`、`getup3`、`follow2` 直接通过）；
 还差 **`turn3`**（偏航 0.30，现在约 0.37 的 turn2 已过、turn3 未过）和 **`obstacle2`**（比值 <0.40，现在 0.24 应该能过，待查）。
+
+### 题库扩到 25 项（2026-10-22）
+
+新增：`back`(后退)、`tilt`(倾倒自救)、`lie`(趴下)、`spin`(原地转一圈)、`crawl`(低姿爬行)、`shake`(甩身)。
+首代 18/25，第 2 代 19/25（新增 `tilt` 与 `shake` 通过）。
+
+未通过：`obstacle2`、`turn3`、`back`、`lie`、`spin`、`crawl`。
