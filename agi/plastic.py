@@ -393,9 +393,20 @@ class PlasticRule:
         self._rebuild_index(engine)
 
     def _decay(self, engine) -> None:
+        """整体降权，但按"神经元类别"分档：深层的、前额叶的掉得慢，浅层的掉得快。
+
+        只按层深查表，不需要给每个神经元存额外状态，几乎不花性能。
+        """
         m = engine.group == self.cfg.group
-        if m.any():
-            engine.w[m] *= self.cfg.decay
+        if not m.any():
+            return
+        # 相对系数：1.0 表示按全局速度掉，越大越"抗遗忘"
+        keep = {1: 0.90, 2: 0.93, 3: 0.96, 4: 0.98, 5: 0.995, 6: 0.999}
+        dep = engine.depth[engine.dst[m]].astype(np.int8)
+        fac = np.ones(len(dep), np.float32)
+        for d, f in keep.items():
+            fac[dep == d] = f
+        engine.w[m] *= (self.cfg.decay * fac)
 
     def _rebuild_index(self, engine) -> None:
         idx = np.flatnonzero(engine.group == self.cfg.group)
