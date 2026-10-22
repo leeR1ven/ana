@@ -22,7 +22,7 @@ from agi.encoding import Observation       # noqa: E402
 
 
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk_to_ball",
-          "turn1", "turn2", "getup1", "getup2", "follow", "obstacle")
+          "turn1", "turn2", "getup0", "getup1", "getup2", "follow", "obstacle")
 
 
 def _brain(kw, preset="small"):
@@ -96,7 +96,7 @@ def run_skill(kw, skill, ticks=100, brain=None):
     body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
     body.reset()
 
-    if skill in ("getup1", "getup2", "getup"):
+    if skill in ("getup0", "getup1", "getup2", "getup"):
         body.data.qpos[2] = 0.10
         body.data.qpos[3:7] = np.array([0.7071, 0.7071, 0.0, 0.0])
         body.data.qpos[7:19] = np.array([0.0, 1.6, -2.6] * 4)
@@ -135,9 +135,9 @@ def run_skill(kw, skill, ticks=100, brain=None):
     if skill in ("turn1", "turn2", "turn_to_ball"):
         need = {"turn1": 0.05, "turn2": 0.15, "turn_to_ball": 0.15}[skill]
         return dict(ok=(not fallen) and abs(dyaw) > need, dyaw=dyaw, fallen=fallen)
-    if skill in ("getup1", "getup2", "getup"):
+    if skill in ("getup0", "getup1", "getup2", "getup"):
         h = float(np.mean(heights[-20:]))
-        need = {"getup1": 0.18, "getup2": 0.22, "getup": 0.20}[skill]
+        need = {"getup0": 0.15, "getup1": 0.18, "getup2": 0.22, "getup": 0.20}[skill]
         return dict(ok=(not fallen) and h > need, height=h, fallen=fallen)
     return dict(ok=False)
 
