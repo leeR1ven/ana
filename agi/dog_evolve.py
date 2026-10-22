@@ -83,21 +83,35 @@ def main(argv=None) -> int:
     p.add_argument("--pop", type=int, default=3)
     p.add_argument("--ticks", type=int, default=80)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--init", default="", help="从已有模型参数起步（json，含 kw）")
     a = p.parse_args(argv)
     rng = np.random.default_rng(2024 + a.seed)
 
     ledger: dict[str, int] = {}
     best = None
+    if a.init and os.path.exists(a.init):      # 从已知最好的模型起步
+        with open(a.init, encoding="utf-8") as f:
+            _kw = json.load(f)["kw"]
+        _sc = evaluate(_kw, ticks=a.ticks)
+        best = (rank_key(_sc, ledger), _kw, _sc)
+        for s, (ok, _) in _sc.items():
+            if ok:
+                ledger[s] = 0
+        print(f"从已有模型起步：{len(ledger)} 项技能 {list(ledger)}", flush=True)
     history = []
+    specials: dict[str, tuple] = {}          # 每项技能的"专科状元"
     for g in range(a.gens):
         if best is None:
             cands = [random_kw(rng) for _ in range(a.pop)]
         else:
+            # 综合状元（best）+ 各科状元（specials）一起繁育
             kids = [mutate(best[1], rng)]
-            if a.pop >= 3:
-                kids.append(mutate(fuse(best[1], best[1]), rng))
-            kids += [mutate(best[1], rng) for _ in range(max(0, a.pop - len(kids)))]
-            cands = kids
+            for s, sp in specials.items():
+                kids.append(mutate(sp[1], rng))                 # 专科的变异体
+                kids.append(mutate(fuse(best[1], sp[1]), rng))  # 综合×专科 融合
+            kids += [mutate(best[1], rng)
+                     for _ in range(max(0, a.pop - len(kids)))]
+            cands = kids[:max(1, a.pop)]
 
         rows = []
         for kw in cands:
@@ -109,6 +123,14 @@ def main(argv=None) -> int:
         top = rows[0]
         if best is None or top[0] > best[0]:
             best = (top[0], top[1], top[2])
+        # 更新"各科状元"：每项技能保留指标最高的那个
+        for rk, kw, sc in rows:
+            for s, (ok, m) in sc.items():
+                if not ok:
+                    continue
+                cur = specials.get(s)
+                if cur is None or m > cur[2]:
+                    specials[s] = (rk, kw, m, sc)
         # 更新清单：新技能记上代数
         for s, (ok, _) in top[2].items():
             if ok and s not in ledger:

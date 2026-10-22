@@ -1,31 +1,37 @@
 {
-  "skills": {},
+  "skills": {
+    "walk1": 0
+  },
   "best_kw": {
-    "seed": 687561,
-    "k_near": 16,
-    "region_links": 1,
-    "w_lo": 0.20882236604997903,
-    "w_hi": 1.9241204198095334
+    "seed": 961350,
+    "k_near": 4,
+    "region_links": 15,
+    "w_lo": 0.1204462893517604,
+    "w_hi": 0.31636269299247166
   },
   "best_rank": [
     1,
-    0
+    1
   ],
   "history": [
     {
       "gen": 1,
-      "skills": {},
+      "skills": {
+        "walk1": 0
+      },
       "best": [
         1,
-        0
+        1
       ]
     },
     {
       "gen": 2,
-      "skills": {},
+      "skills": {
+        "walk1": 0
+      },
       "best": [
         1,
-        0
+        1
       ]
     }
   ]
