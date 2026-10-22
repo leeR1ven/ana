@@ -22,7 +22,7 @@ def _overlap(a: np.ndarray, b: np.ndarray) -> float:
 class Consolidator:
     def __init__(self, engine, group: int = 65, repeats: int = 3,
                  lr: float = 0.05, cap: int = 64, flush_every: int = 50,
-                 match: float = 0.8,
+                 match: float = 0.9,
                  region_decay: dict | None = None, decay_every: int = 200,
                  budget: float = 0.5,
                  mirror=None):
@@ -50,8 +50,11 @@ class Consolidator:
     # ---------------------------------------------------------- 每拍
     def _find(self, cur: np.ndarray):
         for tp in self.templates:
-            if (_overlap(self.prev, tp["a"]) > self.match
-                    and _overlap(cur, tp["b"]) > self.match):
+            a, b = tp["a"], tp["b"]
+            size_ok = (min(len(cur), len(b)) / max(1, max(len(cur), len(b))) > 0.8
+                       and min(len(self.prev), len(a)) / max(1, max(len(self.prev), len(a))) > 0.8)
+            if (size_ok and _overlap(self.prev, a) > self.match
+                    and _overlap(cur, b) > self.match):
                 return tp
         return None
 

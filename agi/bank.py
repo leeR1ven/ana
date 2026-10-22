@@ -20,6 +20,7 @@ from .build import build
 from .loop import Cortex
 from .encoding import Observation
 from .dentate import dentate_code
+from .consolidate import Consolidator
 from .world import _blob
 
 
@@ -172,14 +173,15 @@ def _(h):
 
 @case("记忆", "长期保持")
 def _(h):
+    co = Consolidator(h.eng, lr=1.0, cap=32)   # 独立：只喂"稳定后的码"
     A_img = scene(h.px, 0.5, 0.5)
     B_img = scene(h.px, seed=4)
     for _ in range(8):
         h.run(A_img, n=14)
         a = h.dent()
         h.run(B_img, n=14)
-        h.ctx.consolidator.step(list(h.dent()))
-    h.ctx.consolidator.flush()
+        co.step(list(h.dent()))
+    co.flush()
     A = set(a)
     eng = h.eng
     for _ in range(600):
@@ -193,14 +195,15 @@ def _(h):
 @case("记忆", "多段顺序")
 def _(h):
     imgs = {1: scene(h.px, 0.35, 0.5), 2: scene(h.px, seed=4), 3: scene(h.px, 0.65, 0.5)}
+    co = Consolidator(h.eng, lr=1.0, cap=32)
     codes = {}
     for _ in range(10):
         for x in (1, 2, 3, 2):
             h.run(imgs[x], n=14)
             codes[x] = h.dent()
-            h.ctx.consolidator.step(list(h.dent()))
-    h.ctx.consolidator.flush()
-    d = h.cue(codes[1], n=2)          # 只走两拍：看"直接联想"，别让传播扩散把它抹平
+            co.step(list(h.dent()))
+    co.flush()
+    d = h.cue(codes[1], n=1)          # 只走一拍：看"直接联想"，两拍就会经由 B 传到 C
     fwd = float(np.mean(d[list(codes[2])]))
     skip = float(np.mean(d[list(codes[3])]))
     return fwd > skip
