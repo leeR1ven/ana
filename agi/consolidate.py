@@ -17,13 +17,15 @@ import numpy as np
 
 class Consolidator:
     def __init__(self, engine, group: int = 65, repeats: int = 3,
-                 lr: float = 0.05, cap: int = 64, flush_every: int = 50):
+                 lr: float = 0.05, cap: int = 64, flush_every: int = 50,
+                 decay: float = 0.999, decay_every: int = 200, min_w: float = 0.02):
         self.eng = engine
         self.group = int(group)
         self.repeats = max(2, int(repeats))
         self.lr = float(lr)
         self.cap = int(cap)
         self.flush_every = max(1, int(flush_every))
+        self.decay, self.decay_every, self.min_w = float(decay), max(1, int(decay_every)), float(min_w)
         self.count: dict[int, int] = {}       # 转移签名 -> 出现次数
         self.first: dict[int, np.ndarray] = {}
         self.w: dict[int, float] = {}
@@ -34,8 +36,10 @@ class Consolidator:
     @staticmethod
     def _sig(prev: np.ndarray, cur: np.ndarray) -> int:
         """转移签名：只取两端的"身份"，不看顺序细节（够用即可）。"""
-        a = int(prev[0]) if len(prev) else -1
-        b = int(cur[0]) if len(cur) else -1
+        # 用"编号和"做签名：只取第一个单元太敏感（每次跑第一个可能不同），
+        # 一整组的和稳定得多，又能区分不同内容
+        a = int(prev.sum() % 1_000_003) if len(prev) else -1
+        b = int(cur.sum() % 1_000_003) if len(cur) else -1
         return a * 1_000_003 + b * 31 + len(cur)
 
     def step(self, active) -> None:
@@ -44,7 +48,7 @@ class Consolidator:
             key = self._sig(self.prev, cur)
             c = self.count.get(key, 0) + 1
             self.count[key] = c
-            if c == self.repeats:
+            if c >= self.repeats:          # 之后每次出现都再加强一点
                 # 模式分离：只连"各自独有"的部分。重叠的单元本来就已经相互关联，
                 # 再给它们加边只会把两段经历并成一个吸引子（实测 B 的独有单元掉到 8 个）。
                 a = np.setdiff1d(self.prev, cur)[: self.cap]
@@ -58,6 +62,14 @@ class Consolidator:
                         self.w[k] = min(1.0, v + self.lr * (1.0 - v))
         self.prev = cur
         self.t += 1
+        if self.t % self.decay_every == 0:      # 久不用的长期边慢慢变弱
+            f = self.decay ** self.decay_every
+            for k in list(self.w.keys()):
+                v = self.w[k] * f
+                if v < self.min_w:
+                    del self.w[k]
+                else:
+                    self.w[k] = v
 
     # ---------------------------------------------------------- 写入
     def flush(self) -> int:
