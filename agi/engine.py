@@ -58,6 +58,8 @@ class EngineConfig:
     gain_lr: float = 0.002        # 整体阈值调控速度
     gain_range: tuple = (-0.05, 0.05)   # 只许微调（±0.5 会把深层压死）
     target_active: int = 0        # 0 = 不调控
+    gain_div: float = 0.0         # 除法式增益 γ：亮的越多，整体越难再推高（字神经元网络的做法）
+    gain_div_ids: tuple = ()      # 只对这一批神经元做除法增益（一般给前额叶）
     backend: str = "auto"         # auto | torch | numpy
     seed: int = 7
 
@@ -388,6 +390,8 @@ class Engine:
             self._base_t = torch.from_numpy(self._base)
             self._adapt_t = torch.from_numpy(self._adapt_np)
             self._tbuf = torch.zeros(self._n, dtype=torch.float32)
+            self._gd_ids = (torch.as_tensor(np.asarray(self.cfg.gain_div_ids, np.int64))
+                            if len(self.cfg.gain_div_ids) else None)
             for s, e, k in self._topk:
                 m = np.zeros(e - s, np.float32)
                 self._masks.append((s, e, k, torch.from_numpy(m)))
@@ -409,6 +413,9 @@ class Engine:
             if self.adapt_rate > 0.0:
                 b.sub_(self._base_t)                 # 只保留"相对自己的变化"
                 self._base_t.add_(b * self._adapt_t)  # base += rate·(raw-base)
+            if self.cfg.gain_div > 0.0 and self._gd_ids is not None:
+                s = float(self._act_t[self._gd_ids].sum())
+                b[self._gd_ids] *= 1.0 / (1.0 + self.cfg.gain_div * s)
             return b
         d = np.bincount(self.dst, weights=self.wp * self.sgn * self.act[self.src],
                         minlength=self._n).astype(np.float32)

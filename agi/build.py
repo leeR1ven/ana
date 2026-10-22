@@ -46,7 +46,7 @@ class G:
     RET_INH = 16       # 回程抑制细胞 → 第一级
     RET_L1 = 17        # 前额叶 → 第一级（随机铺开）
     RET_L2 = 18        # 第二级 → 本层神经元
-    REFLEX = 50        # 各区 L5 → 反射中继（第二套控制，天生不可改）
+    REGION_LINK = 55   # 区与区之间的直连（出生固定、不可改）
     REFLEX_INH = 51    # 抑制细胞 → 反射中继（前额叶用它压制反射）
     PFC = 30           # 往前额叶送的整条通路（层→中继→中继→额叶）
     PLASTIC = -1       # 预留：可塑边（v0 为 0 条）
@@ -514,6 +514,21 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     ids["motor"] = dict(pfc=mpfc, relay=mr1, force=mforce, inh=inh, deinh=deinh)
     motor = dict(mpfc=mpfc, mr1=mr1, force=mforce, inh=inh, deinh=deinh, sub=sub)
 
+    # ---- 区与区之间的直连（出生固定、不参与学习：这类连接天生难改）----
+    if spec.region_links > 0:
+        order = list(spec.active_regions())
+        for a, b in zip(order, order[1:]):
+            for src_r, dst_r in ((a, b), (b, a)):
+                if f"{src_r}.L5" not in layers or f"{dst_r}.L5" not in layers:
+                    continue
+                s_ids = layers[f"{src_r}.L5"].ids
+                d_ids = layers[f"{dst_r}.L5"].ids
+                n = int(min(spec.region_links, len(s_ids), len(d_ids)))
+                pick_s = _sample_no_replace(rng, s_ids, n, 1).reshape(-1)
+                pick_d = _sample_no_replace(rng, d_ids, n, 1).reshape(-1)
+                eng.connect(pick_d, pick_s, rng.uniform(0.2, 0.3, n),
+                            group=G.REGION_LINK)
+
     # ---------------------------------------------------------- 5. 收尾
     eng.finalize()
     pfc_all = np.concatenate([v for v in pfc_groups.values()] + [mpfc])
@@ -540,6 +555,10 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     kept_pfc = sum(int((~m).sum()) for m in brain.filtered.values()) if brain.filtered \
         else int(sum(len(v) for v in pfc_groups.values()))
     total_pfc = kept_pfc + nm
+    if spec.pfc_gain_div > 0:
+        eng.cfg.gain_div = float(spec.pfc_gain_div)
+        eng.cfg.gain_div_ids = tuple(int(x) for x in np.concatenate(
+            list(pfc_groups.values()) + [mpfc]))
     eng.cfg.target_active = (max(1, int(k_total)) if k_total
                              else max(1, int(round(spec.pfc_target_frac * total_pfc))))
     if do_calibrate:

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """架构自检：只查"架构上一定不成立"的事，不查效果。
 
 `check()` 是静态不变量（不跑网络）；`check_behavior()` 跑十几拍看通路是否通。
@@ -130,6 +130,13 @@ def check(brain, expect_no_plastic: bool = True, verbose: bool = False) -> list[
         add("D → I 的边不是抑制")
     if g_i.sum() == 0:
         add("没有 I → 力度 的门控边")
+    # 区与区直连：必须真的跨区，而且不能落在可塑组里（天生不可改）
+    g_rl = eng.group == G.REGION_LINK
+    if g_rl.any():
+        if (eng.region[eng.src[g_rl]] == eng.region[eng.dst[g_rl]]).any():
+            add("区与区直连里出现了同一个区内部的边")
+        if (eng.group[g_rl] == G.PL_PFC).any():
+            add("区与区直连被放进了可塑组（必须不可改）")
 
     if verbose:
         print(f"[check] {len(issues)} issues / {n:,} neurons / {eng.n_edges:,} edges")
