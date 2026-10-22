@@ -68,8 +68,8 @@ class PlasticConfig:
     # 固化：用得多就变难改，超过阈值就冻结（长期记忆）
     consolidate: bool = True
     use_ref: float = 8.0            # 用到这个次数，可塑性降到一半
-    freeze_at: float = 30.0         # 用到这个次数，冻结（不再改变）
-    plast_min: float = 0.02         # 可塑性下限（冻结前仍留一点）
+    long_term_at: float = 30.0      # 用到这个次数算"长期记忆"（只是标记，不冻结）
+    plast_min: float = 0.01         # 可塑性下限：再老的记忆也留着这一点点可改性
 
 
 class PlasticRule:
@@ -222,13 +222,13 @@ class PlasticRule:
             w = engine.w[gi]
             inc = eta * np.maximum(0.0, 1.0 - w / self.cfg.w_max) ** self.cfg.pow
             if self.cfg.consolidate and len(self._use) == self._cnt_edge.size:
-                # 固化：用得越多越难改；冻结的完全不再改
-                plast = self.cfg.use_ref / (self.cfg.use_ref + self._use[ei])
-                plast = np.maximum(plast, self.cfg.plast_min)
-                plast[self._frozen[ei]] = 0.0
+                # 固化：用得越多改得越慢，但**永远不冻结**——
+                # 长期记忆是"难改"，不是"不能改"（硬冻结会留下无法纠正的错误）。
+                plast = self.cfg.plast_min + (1.0 - self.cfg.plast_min) * (
+                    self.cfg.use_ref / (self.cfg.use_ref + self._use[ei]))
                 inc = inc * plast
                 self._use[ei] += cnt[found]
-                self._frozen[ei] |= self._use[ei] >= self.cfg.freeze_at
+                self._frozen[ei] |= self._use[ei] >= self.cfg.long_term_at
             engine.w[gi] += inc.astype(np.float32)
             self._cnt_edge[ei] += cnt[found]
             self._strengthened += int(found.sum())

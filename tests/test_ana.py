@@ -264,7 +264,7 @@ def test_pmi_gate():
 
 
 def test_consolidation_freezes():
-    """用得多就变难改：冻结之后同样的反复使用不能再把权重推上去。"""
+    """用得多就变难改：老边涨得慢，但仍然能涨（不是冻结）。"""
     def run(consolidate):
         eng = Engine(EngineConfig(target_active=0))
         ids = eng.add_block(2, kind="pfc", region="p", thr=0.0, soft=1.0)
@@ -282,7 +282,7 @@ def test_consolidation_freezes():
 
     w_cons, frozen = run(True)
     w_plain, _ = run(False)
-    assert w_cons < w_plain - 0.1, f"固化后应该涨得更少：{w_cons:.2f} vs {w_plain:.2f}"
+    assert w_cons < w_plain - 0.1, f"老边应该涨得更少：{w_cons:.2f} vs {w_plain:.2f}"
     assert frozen
 
 
