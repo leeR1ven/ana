@@ -115,9 +115,13 @@ def main(argv=None) -> int:
         kw, sc, det = outs[0]
         if sc > best_overall:
             best_overall = sc
+            payload = {"score": sc, "skills": list(skills), "kw": kw, "detail": det}
             with open(os.path.join(ROOT, "multi2_best.json"), "w", encoding="utf-8") as f:
-                json.dump({"score": sc, "skills": list(skills), "kw": kw, "detail": det},
-                          f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            # 带版本号另存一份：否则文件被覆盖，"对比"其实是拿不同模型在比
+            with open(os.path.join(ROOT, "multi2_g%02d.json" % (g + 1)), "w",
+                      encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
         print("第%2d代 [%s] score %.3f  %s" % (
             g + 1, ",".join(skills), sc,
             " ".join("%s:%s" % (s, "✓" if (det.get(s) or {}).get("ok") else "✗")
