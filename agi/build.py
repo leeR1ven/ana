@@ -494,6 +494,16 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                                    dtype=np.float32))).astype(np.float32)
         eng.set_thr(f, thr=thr, soft=np.full(spec.n_force, 0.6, np.float32))
         mforce[m] = f
+    # 视觉 → 运动直连（可选）：绕过前额叶。
+    # 前额叶靠不住永久记忆，而"看到东西就往哪边走"这类映射更像固化的通路。
+    _vm = int(getattr(spec, "vision_motor", 0))
+    if _vm > 0:
+        vis5 = layers.get("vision.L5")
+        if vis5 is not None:
+            pool_v = np.asarray(vis5.ids)
+            src = rng.choice(pool_v, _vm, replace=True)
+            dst = rng.choice(mr1, _vm, replace=True)
+            eng.connect(dst, src, rng.uniform(_W_RANGE[0], _W_RANGE[1], _vm))
     # 墙抑制组（可选）：视觉 L5 → 抑制神经元 → 力度细胞。
     # 引擎的符号规则是"源神经元是不是抑制型决定正负"，所以必须有一个抑制型中间组，
     # 才能让"看到障碍"把力度压下去（而不是继续推高）。
