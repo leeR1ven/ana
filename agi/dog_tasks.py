@@ -21,7 +21,7 @@ from agi.body_go2 import Go2Body           # noqa: E402
 from agi.encoding import Observation       # noqa: E402
 
 
-SKILLS = ("walk1", "walk2", "walk3", "turn_to_ball", "getup")
+SKILLS = ("walk1", "walk2", "walk3", "walk_to_ball", "turn_to_ball", "getup")
 
 
 def _brain(kw, preset="small"):
@@ -91,7 +91,7 @@ def run_skill(kw, skill, ticks=100):
     dx = xs[-1] - x0
     dyaw = yaws[-1] - yaw0
     fallen = bool(body.fallen())
-    if skill.startswith("walk"):          # 难度档：走 3cm / 5cm / 10cm 各算一档
+    if skill in ("walk1", "walk2", "walk3"):   # 难度档：走 3cm / 5cm / 10cm 各算一档
         need = {"walk1": 0.03, "walk2": 0.05, "walk3": 0.10}[skill]
         return dict(ok=(not fallen) and abs(dx) > need, dx=dx, fallen=fallen)
     if skill == "walk_to_ball":
