@@ -19,9 +19,8 @@ def mk(kind):
     img = np.zeros((px, px, 3), np.float32) + 0.05
     if kind == "A":
         img = np.maximum(img, _blob(px, 0.3, 0.4, 0.2, (0.95, 0.2, 0.1)))
-    else:
-        g = np.indices((px, px)).sum(0) % 8
-        img = np.repeat((g < 4)[..., None], 3, axis=2).astype(np.float32) * 0.9
+    else:                                  # 绿色横条：面积与红球相近，形状/颜色不同
+        img = np.maximum(img, _blob(px, 0.7, 0.6, 0.2, (0.1, 0.9, 0.2)))   # 同尺寸、不同位置/颜色
     return Observation(vision=img.astype(np.float32),
                        audio=np.zeros((sp.audio_bands, sp.audio_frames), np.float32),
                        touch=np.full(sp.touch_ch, 0.5, np.float32),
