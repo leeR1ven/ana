@@ -798,3 +798,20 @@ Cortex(brain)      # 每拍自动记转移，反复出现第 3 次起写入长�
 python experiments/p29_walk_par.py --n 400 --jobs 12
 python experiments/p29_walk_par.py --n 400 --jobs 12 --seed-kw walk_best.json   # 从最优继续
 ```
+
+### 技能清单开始累积（2026-10-22）
+
+并行搜索把走路从 0.049 推到 **0.052 米**，walk2（>0.05）首次通过：
+
+```
+第 1 代：技能 2/5 ['walk1', 'walk2']
+第 2 代：技能 2/5 ['walk1', 'walk2']
+```
+
+**这是"技能只增不减"的第一个实证**：
+- 上一轮清单只有 `walk1`（3 厘米）；
+- 这一轮同一份清单变成 `walk1 + walk2`（3 厘米 + 5 厘米）；
+- 代际之间没有掉项。
+
+路线：`walk_best.json`（0.052 米那个模型）→ `dog_evolve --init` 起步 → 清单记录。
+继续往前就是 `walk3`（>0.10 米），再往后接"朝红球走"。
