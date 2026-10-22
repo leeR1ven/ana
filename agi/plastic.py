@@ -55,7 +55,8 @@ class PlasticConfig:
     flush_every: int = 25           # 每多少拍把攒下的新边真正写进引擎（重建张量很贵）
     flush_edges: int = 4000         # 攒够这么多条也提前写一次
     sharpen: float = 1.5            # 传播权重 = W^sharpen
-    prop_gain: float = 1.0          # 传播权重的总增益（混合驱动时要抬，见 sync 注释）
+    prop_gain: float = 1.0          # 传播权重的总增益
+    budget: float = 0.2             # 每个单元"全部出边"的传播权重之和上限：只调制、不推亮目标
     in_floor: float = 1e9           # 枢纽抑制的下限；设成很大 = 关闭（实测不加也能长出联想）
     out_floor: float = 1e-6         # 出边和下限（防除零）
     # 特异性闸门（PMI）：压掉"什么都能连"的万金油连接
@@ -439,6 +440,9 @@ class PlasticRule:
         wp = ws / denom / hub * cfg.prop_gain
         if cfg.pmi_gate and self._cnt_unit.size == engine.n and self.t > 5:
             wp = wp * self.gates(engine, idx)
+        if cfg.budget > 0:
+            tot = np.bincount(engine.src[idx], weights=wp, minlength=engine.n)
+            wp = wp * (cfg.budget / np.maximum(tot[engine.src[idx]], 1e-9))
         engine.wp[idx] = wp.astype(np.float32)
 
     def count(self, engine) -> int:
