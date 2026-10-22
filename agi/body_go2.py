@@ -29,7 +29,7 @@ DEFAULT_XML = os.environ.get("ANA_GO2_XML") or r"C:\mujoco_models\unitree_go2\sc
 class Go2Body:
     """12 关节力矩电机 + PD 站姿保持。"""
 
-    def __init__(self, xml_path: str = DEFAULT_XML, kp: float = 60.0,
+    def __init__(self, xml_path: str = DEFAULT_XML, kp: float = 300.0,
                  kd: float = 2.0, physics_hz: int = 500, brain_hz: int = 50,
                  posture_offset: float = 0.0):
         import mujoco  # 延迟导入：没有 mujoco 时其它模块照常可用
