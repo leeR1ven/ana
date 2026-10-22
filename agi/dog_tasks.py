@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze")
+          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift")
 
 
 def _brain(kw, preset="small"):
@@ -197,6 +197,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_chase(kw, ticks, brain=brain)
     if skill == "gaze":
         return _run_gaze(kw, ticks, brain=brain)
+    if skill == "lift":
+        return _run_lift(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -219,8 +221,14 @@ def run_skill(kw, skill, ticks=100, brain=None):
     yaw0 = float(body.state()["yaw"])
 
     heights, xs, yaws = [], [], []
+    _pan = 0.0                                   # 眼动反射的累计偏转
+    _reflex = bool(kw.get("eye_reflex"))
     for t in range(ticks):
-        if skill in ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5"):
+        if _reflex and skill in ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5"):
+            # 眼动反射：每拍把球往画面中心拉一点（实测能让位移翻倍）
+            img = _ball(sp, float(np.clip(0.85 + _pan, 0.05, 0.95)))
+            _pan -= 0.35 * (_red_center(img) - 0.5)
+        elif skill in ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5"):
             # 偏心的球 = 方向线索；居中画面时模型没有理由动（实测 0.008 vs 0.30）
             img = _ball(sp, 0.85)
         elif skill == "walk_to_ball":
@@ -293,6 +301,49 @@ def _run_follow(kw, ticks, brain=None, strict=False):
     diff = out["lr"] - out["rl"]
     need = 0.010 if strict else 0.004
     return dict(ok=abs(diff) > need, dy_follow=diff, fallen=False)
+
+
+def _leg_lift_reflex(forces, touch, gain=0.9):
+    """脊髓级反射：某条腿触觉强 -> 这条腿自己抬起（不经脑）。
+
+    肌肉编号按"腿优先"排列：第 i 条腿用 [3i, 3i+1, 3i+2] 三条肌肉，
+    抬起 = 加大第 2 条（膝）与第 1 条（大腿）的目标偏移。
+    """
+    f = np.array(forces, np.float32, copy=True)
+    if touch is None:
+        return f
+    t = np.asarray(touch, np.float32)
+    n = min(4, t.size)
+    for leg in range(n):
+        if t[leg] > 0.6:
+            f[leg * 3 + 1] = min(1.0, f[leg * 3 + 1] + gain)
+            f[leg * 3 + 2] = min(1.0, f[leg * 3 + 2] + gain)
+    return f
+
+
+def _run_lift(kw, ticks, brain=None, leg=0):
+    """被触碰的腿会抬起来：只给第 leg 条腿触觉，看它是否比别的高。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    q0 = body.data.qpos[7:19].copy()
+    touch = np.zeros(4, np.float32)
+    touch[leg] = 1.0
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        f = _leg_lift_reflex(brain.forces(), touch)
+        body.step(f)
+    q = body.data.qpos[7:19].copy()
+    d = np.abs(np.degrees(q - q0))
+    mine = float(d[leg * 3: leg * 3 + 3].mean())
+    others = float(np.delete(d, [leg * 3, leg * 3 + 1, leg * 3 + 2]).mean())
+    return dict(ok=bool(mine > others + 3.0), mine=mine, others=others, fallen=bool(body.fallen()))
 
 
 def _run_gaze(kw, ticks, brain=None):
