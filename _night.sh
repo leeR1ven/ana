@@ -10,6 +10,14 @@ export ANA_GO2_XML=/root/go2models/scene.xml
 i=0
 while true; do
   i=$((i+1))
+  # 防停滞：每 3 轮换一个种子（从历史代存档里随机挑），避免一直围着同一只转
+  if [ $((i % 3)) -eq 0 ]; then
+    pick=$(ls -t multi2_g*.json multi2_best.json 2>/dev/null | shuf -n 1)
+    if [ -n "$pick" ]; then
+      cp -f "$pick" gait_top1.json
+      echo "[$(date '+%H:%M:%S')] 换种子 <- $pick" >> night.log
+    fi
+  fi
   echo "[$(date '+%H:%M:%S')] ===== 第 $i 轮开始 =====" >> night.log
   python3 experiments/p43_multi2.py --gens 20 --pop 24 --jobs 26 --ticks 120 \
       >> night_$i.log 2>&1
