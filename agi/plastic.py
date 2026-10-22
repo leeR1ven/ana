@@ -86,6 +86,7 @@ class PlasticConfig:
     inh_max: float = 0.6
     fail_decay: float = 0.002
     inh_group: int = 41
+    inh_window: int = 3             # 目标最近几段稳定码里一次都没亮过，才算"真没被驱动"
 
 
 class PlasticRule:
@@ -118,6 +119,8 @@ class PlasticRule:
         self._strengthened = 0
         self._anti: dict[int, float] = {}     # 负连接：key -> 负权重
         self._anti_batch: list[tuple[np.ndarray, np.ndarray]] = []
+        self._hist_codes: list[np.ndarray] = []
+        self._recent_any = np.zeros(0, bool)
         self.t = 0
 
     # ------------------------------------------------------------ 主入口
@@ -156,6 +159,14 @@ class PlasticRule:
                     else:
                         grown, strengthened = self._hebb(engine, self._settled, cur)
                 self._settled = cur
+                # 维护"最近几段里亮过"的掩码（区分"竞争没选上"和"真没被驱动"）
+                self._hist_codes.append(cur)
+                if len(self._hist_codes) > max(1, int(self.cfg.inh_window)):
+                    self._hist_codes.pop(0)
+                rm = np.zeros(engine.n, bool)
+                for h in self._hist_codes:
+                    rm[h] = True
+                self._recent_any = rm
                 # 维护"最近 seen 过"的窗口
                 self._hist.append(cur)
                 np.add.at(self._seen, cur, 1)
@@ -222,7 +233,9 @@ class PlasticRule:
             idx = np.flatnonzero(engine.group == self.cfg.group)
             if len(idx):
                 s, dd = engine.src[idx], engine.dst[idx]
-                m = np.isin(s, pre) & ~np.isin(dd, cur)
+                recent = (self._recent_any if self._recent_any.size == engine.n
+                          else np.zeros(engine.n, bool))
+                m = np.isin(s, pre) & ~recent[dd]
                 if m.any():
                     engine.w[idx[m]] *= (1.0 - self.cfg.fail_decay)   # 带不亮对方 → 变弱
                     self._anti_batch.append((s[m].copy(), dd[m].copy()))
