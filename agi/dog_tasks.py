@@ -111,7 +111,10 @@ def run_skill(kw, skill, ticks=100, brain=None):
 
     heights, xs, yaws = [], [], []
     for t in range(ticks):
-        if skill == "walk_to_ball":
+        if skill in ("walk0", "walk1", "walk2", "walk3"):
+            # 偏心的球 = 方向线索；居中画面时模型没有理由动（实测 0.008 vs 0.30）
+            img = _ball(sp, 0.85)
+        elif skill == "walk_to_ball":
             frac = t / max(1, ticks - 1)
             img = _ball(sp, 0.85 - 0.6 * frac)       # 球从右边逐渐靠近中心
         elif skill in ("turn1", "turn2", "turn_to_ball"):
