@@ -62,6 +62,9 @@ class Go2Body:
             self.mj.mj_step(self.model, self.data)
 
     def _pd_step(self) -> None:
+        if getattr(self, 'torso', 0.0):
+            # 第 13 条执行器：躯干翻滚力矩（狗本来就有躯干肌）
+            self.data.xfrc_applied[1, 3] = self.torso * 40.0
         q = self.data.qpos[7:19]
         qd = self.data.qvel[6:18]
         f = self.forces
@@ -73,7 +76,10 @@ class Go2Body:
 
     def step(self, forces=None) -> None:
         if forces is not None:
-            self.forces = np.asarray(forces, np.float32)[:12]
+            arr = np.asarray(forces, np.float32).ravel()
+        self.forces = arr[:12]
+        self.torso = (float(arr[12]) if len(arr) > 12
+                      else float(getattr(self, 'torso_cmd', 0.0)))
         for _ in range(self.substeps):
             self._pd_step()
             self.mj.mj_step(self.model, self.data)

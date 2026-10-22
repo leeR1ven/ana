@@ -137,6 +137,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
     body.reset()
 
     if skill in ("getup0", "getup1", "getup2", "getup"):
+        # 第 13 条执行器：躯干翻滚（力度由 torso_force 控制）
+        body.torso_cmd = float(kw.get("torso_force", 0.0))
         body.data.qpos[2] = 0.10
         body.data.qpos[3:7] = np.array([0.7071, 0.7071, 0.0, 0.0])
         body.data.qpos[7:19] = np.array([0.0, 1.6, -2.6] * 4)

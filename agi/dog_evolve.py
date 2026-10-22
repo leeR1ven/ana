@@ -26,10 +26,10 @@ sys.path.insert(0, ROOT)
 from agi.dog_tasks import SKILLS, run_skill          # noqa: E402
 
 PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in",
-          "posture_offset", "clock_motor")
+          "posture_offset", "clock_motor", "torso_force")
 RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
           "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
-          "posture_offset": (0.12, 0.6), "clock_motor": (0.0, 0.4)}
+          "posture_offset": (0.12, 0.6), "clock_motor": (0.0, 0.4), "torso_force": (0.0, 1.0)}
 
 
 def random_kw(rng):
@@ -40,7 +40,8 @@ def random_kw(rng):
                 w_hi=float(rng.uniform(0.3, 2.0)),
                 motor_fan_in=int(rng.integers(4, 65)),
                 posture_offset=float(rng.uniform(0.12, 0.6)),
-                clock_motor=float(rng.uniform(0.0, 0.3)))
+                clock_motor=float(rng.uniform(0.0, 0.3)),
+                torso_force=float(rng.uniform(0.0, 1.0)))
 
 
 def mutate(kw, rng):
@@ -57,6 +58,7 @@ def mutate(kw, rng):
         out["clock_motor"] = float(np.clip(rng.uniform(0.0, 0.3), 0.0, 0.4))
     else:
         out["clock_motor"] = float(np.clip(out["clock_motor"] * rng.uniform(0.8, 1.3), 0.0, 0.4))
+    out["torso_force"] = float(np.clip(out.get("torso_force", 0.0) * rng.uniform(0.8, 1.25), 0.0, 1.0))
     return out
 
 

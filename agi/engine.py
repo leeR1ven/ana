@@ -202,7 +202,7 @@ class Engine:
         self.src = np.r_[self.src, src]
         self.dst = np.r_[self.dst, dst]
         self.w = np.r_[self.w, w]
-        self.wp = np.r_[self.wp, w]
+        self.wp = np.r_[self.wp, w * sgn]
         self.sgn = np.r_[self.sgn, sgn]
         self.group = np.r_[self.group, np.full(len(src), int(group), np.int16)]
         if len(self._in_sum) == self._n:
@@ -349,8 +349,10 @@ class Engine:
         self.src = self._cat(self._e_src, np.zeros(0, np.int32), np.int32)
         self.dst = self._cat(self._e_dst, np.zeros(0, np.int32), np.int32)
         self.w = self._cat(self._e_w, np.zeros(0, np.float32), np.float32)
-        self.wp = self.w.copy()
         self.sgn = self._cat(self._e_sgn, np.zeros(0, np.float32), np.float32)
+        # 抑制必须真的作用到传播上：把符号乘进可塑权重
+        # （原来 sgn 只算不用，驱动是 wp*act，全是正的 —— 抑制等于没有）
+        self.wp = self.w * self.sgn
         self.group = self._cat(self._e_group, np.zeros(0, np.int16), np.int16)
         # 去重：同一对 (src,dst) 只保留一条（多次采样撞上时留第一条）
         if len(self.src):
