@@ -80,6 +80,12 @@ class PlasticConfig:
     anti_max: float = 0.6
     anti_group: int = 41
     n_anti: int = 3                 # 每个源每次挑几个"没一起亮"的目标
+    # 按 born-wired-cortex 的正确规则：A 亮、A 的实际目标 B 没亮 → 抑制 A→B 增强、兴奋 A→B 减弱
+    inh_targets: bool = False
+    inh_eta: float = 0.004
+    inh_max: float = 0.6
+    fail_decay: float = 0.002
+    inh_group: int = 41
 
 
 class PlasticRule:
@@ -111,6 +117,7 @@ class PlasticRule:
         self._grown = 0
         self._strengthened = 0
         self._anti: dict[int, float] = {}     # 负连接：key -> 负权重
+        self._anti_batch: list[tuple[np.ndarray, np.ndarray]] = []
         self.t = 0
 
     # ------------------------------------------------------------ 主入口
@@ -210,6 +217,15 @@ class PlasticRule:
                 b = newly[self.rng.integers(0, len(newly), k)]
                 keep = a != b
                 self._apply_pairs(engine, a[keep], b[keep], cfg.eta_sim)
+        # 按目标写的互抑制：只针对"这个源自己的实际目标"，不是随机采样
+        if self.cfg.inh_targets and len(pre):
+            idx = np.flatnonzero(engine.group == self.cfg.group)
+            if len(idx):
+                s, dd = engine.src[idx], engine.dst[idx]
+                m = np.isin(s, pre) & ~np.isin(dd, cur)
+                if m.any():
+                    engine.w[idx[m]] *= (1.0 - self.cfg.fail_decay)   # 带不亮对方 → 变弱
+                    self._anti_batch.append((s[m].copy(), dd[m].copy()))
         # 互抑制：源亮、目标没亮 → 长负连接（很少一起出现才长）
         if self.cfg.anti_learn and len(pre):
             cand = cur if len(cur) else prev
@@ -317,6 +333,14 @@ class PlasticRule:
         if self.cfg.decay_every and self.t % self.cfg.decay_every == 0:
             self._decay(engine)
             pruned = self._prune(engine)
+        if self._anti_batch:
+            s = np.concatenate([b[0] for b in self._anti_batch]).astype(np.int64)
+            d = np.concatenate([b[1] for b in self._anti_batch]).astype(np.int64)
+            keys, cnt = np.unique(s * engine.n + d, return_counts=True)
+            for k, c in zip(keys.tolist(), cnt.tolist()):
+                self._anti[k] = max(-self.cfg.inh_max,
+                                    self._anti.get(k, 0.0) - self.cfg.inh_eta * c)
+            self._anti_batch.clear()
         if self._anti:
             old = engine.group == self.cfg.anti_group
             if old.any():
