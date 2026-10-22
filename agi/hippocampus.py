@@ -50,12 +50,17 @@ class HippoBinder:
     """
 
     def __init__(self, engine, pfc_ids, ring, group_in: int = 63, group_out: int = 64,
-                 lr: float = 0.05, cap: int = 256, w_max: float = 1.0, seed: int = 5):
+                 lr: float = 1.0, cap: int = 256, w_max: float = 1.0,
+                 decay: float = 0.99, decay_every: int = 10, min_w: float = 0.05,
+                 seed: int = 5):
+        # 时间绑定是**短期记忆**：写得快（lr≈1，一次就到目标）、忘得快（decay + 删弱边）。
+        # 这和皮层/PFC 的长期连接相反（那边是凹增长、难改、不衰减）。
         self.eng = engine
         self.pfc = np.asarray(pfc_ids, np.int64)
         self.ring = ring
         self.g_in, self.g_out = group_in, group_out
         self.lr, self.cap, self.w_max = lr, int(cap), w_max
+        self.decay, self.decay_every, self.min_w = decay, max(1, int(decay_every)), min_w
         self.rng = np.random.default_rng(seed)
         self.enc: dict[int, float] = {}     # pfc -> time 的权重
         self.dec: dict[int, float] = {}     # time -> pfc 的权重
@@ -77,6 +82,15 @@ class HippoBinder:
             self._grow(self.enc, p * self.ring.n + t)     # 特征 → 时间
             self._grow(self.dec, t * 100000 + p)          # 时间 → 特征
         self.t += 1
+        if self.t % self.decay_every == 0:      # 短期记忆：定时衰减，弱边直接丢
+            f = self.decay ** self.decay_every
+            for d in (self.enc, self.dec):
+                for k in list(d.keys()):
+                    v = d[k] * f
+                    if v < self.min_w:
+                        del d[k]
+                    else:
+                        d[k] = v
 
     def flush(self) -> int:
         """把攒下的连接写进引擎（先清掉旧的，再整体重写）。"""
