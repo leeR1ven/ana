@@ -1092,3 +1092,9 @@ walk0/1/2/3, walk_to_ball, turn1, turn2, getup0/1/2, follow, obstacle, march  = 
 ### 五、检查
 
 17/17 测试 · 0 issues · 地基符合 · 整拍 <20 ms。
+
+### 演化进展（2026-10-22 晚）
+
+22 代、第 4 代时到 **29/36**：
+新增 `orient`、`walk4`、`turn2`、`reach`、`orbit`、`chase`、`biped` 等；
+仍缺 `walk5`、`turn3`、`obstacle2`、`jump`、`detour`、`follow2`/`shake` 等随参数波动的项。
