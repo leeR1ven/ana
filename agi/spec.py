@@ -94,7 +94,8 @@ class Spec:
     region_links: int = 64
     region_shortcut: bool = True                  # 相邻区一起亮时，学一条绕开前额叶的直连
     dentate_factor: int = 2                       # 扩维去相关层（仿齿状回）：默认开
-    long_term: bool = True                        # 反复出现 → 皮层长期连接：默认开
+    long_term: bool = False                       # 反复出现→长期连接（默认关：会把扩维层锁死，待修）
+    recall_out: bool = False                      # 回忆读出神经元（实验性，暂未跑通）
     n_time: int = 512                             # 海马体时间环的格子数（0 = 不加）
     hippo_bind: bool = True                       # 每拍把前额叶活动绑到当前时间格上
     hippo_flush_every: int = 50                   # 多久把绑定写进引擎一次

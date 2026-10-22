@@ -24,6 +24,7 @@ class Consolidator:
                  lr: float = 0.05, cap: int = 64, flush_every: int = 50,
                  match: float = 0.8,
                  region_decay: dict | None = None, decay_every: int = 200,
+                 budget: float = 0.5,
                  mirror=None):
         self.eng = engine
         self.group = int(group)
@@ -34,6 +35,7 @@ class Consolidator:
         self.match = float(match)
         self.rng = np.random.default_rng(3)
         self.region_decay = region_decay or {}
+        self.budget = float(budget)
         self.mirror = None
         if mirror is not None:
             _s, _o = (np.asarray(x, np.int64) for x in mirror)

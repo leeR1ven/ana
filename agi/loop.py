@@ -95,7 +95,7 @@ class Cortex:
                 brain.engine,
                 region_decay={0: 0.999, 1: 0.997, 2: 0.99, 3: 0.985, 4: 0.98},
                 decay_every=200,
-                mirror=(brain.ids["dentate"], brain.ids["recall_out"]))
+                mirror=(brain.ids["dentate"], brain.ids["recall_out"]) if "recall_out" in brain.ids else None)
         self.t = 0
 
     # ------------------------------------------------------------ 一拍
