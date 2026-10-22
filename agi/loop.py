@@ -84,6 +84,10 @@ class Cortex:
         if getattr(self.spec, "region_shortcut", False):
             from .shortcuts import RegionShortcuts
             self.shortcuts = RegionShortcuts(brain.engine)
+        self.consolidator = None
+        if getattr(self.spec, "long_term", False) and "dentate" in brain.ids:
+            from .consolidate import Consolidator
+            self.consolidator = Consolidator(brain.engine)
         self.t = 0
 
     # ------------------------------------------------------------ 一拍
@@ -113,6 +117,12 @@ class Cortex:
             self.shortcuts.step([int(i) for ids in _L5 for i in ids[_a[ids] > 0.5]])
             if self.shortcuts.t % 50 == 0:
                 self.shortcuts.flush()
+        if self.consolidator is not None:
+            from .dentate import dentate_code
+            _dg = np.asarray(self.brain.ids["dentate"])
+            self.consolidator.step(list(dentate_code(self.engine, _dg)))
+            if self.consolidator.t % 50 == 0:
+                self.consolidator.flush()
         t2 = time.perf_counter()
         forces = self.brain.forces()
         counts = self.brain.force_counts()
