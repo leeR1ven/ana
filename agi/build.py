@@ -595,7 +595,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
             print(f"   {r:9s} 每拍选中 {L.k:5d} / {L.size:5d}")
     if spec.threshold_theta > 0:
         # 放在最后再设一遍：所有分位标定/增益都已经跑完，此时设才不会被打回
-        _apply_theta_last(brain, spec)
+        _apply_stage_quantile(brain, spec)
     return brain
 
 
@@ -859,5 +859,49 @@ def _apply_theta_last(brain: "Brain", spec) -> None:
     eng.set_thr(pfc, thr=(th * mass[pfc]).astype(np.float32),
                 soft=(0.05 * mass[pfc]).astype(np.float32))
     _run()
+    eng.cfg.target_active = 0
+    eng.act[:] = 0.0
+def _apply_stage_quantile(brain: "Brain", spec) -> None:
+    """逐级分位标定：从浅到深，每一级用它自己的驱动取分位当门槛。
+
+    为什么不是全局 θ：各级驱动的量级差太多，同一个系数不可能都合适；
+    一次性设所有层又会级联饿死。逐级、按各自分位，才能让每一级都落在分级区。
+    """
+    eng = brain.engine
+    enc = brain.encoder
+    q = float(getattr(spec, "threshold_q", 0.85))
+    rng = np.random.default_rng(spec.seed + 97)
+    obs = [type("O", (), dict(
+        vision=rng.random((spec.px, spec.px, 3), dtype=np.float32),
+        audio=rng.random((spec.audio_bands, spec.audio_frames), np.float32),
+        touch=np.full(spec.touch_ch, 0.4, np.float32),
+        proprio=np.full(spec.proprio_ch, 0.5, np.float32),
+        balance=np.full(spec.balance_ch, 0.5, np.float32)))() for _ in range(3)]
+
+    def _run(n: int = 5) -> None:
+        eng.act[:] = 0.0
+        for o in obs:
+            for _ in range(n):
+                eng.clear_external()
+                eng.set_input(enc.encode(o))
+                eng.step()
+
+    def _cal(ids) -> None:
+        ids = np.asarray(ids)
+        _run()
+        d = np.asarray(eng.drive())[ids]
+        thr = max(float(np.quantile(d, q)), 1e-4)
+        eng.set_thr(ids, thr=np.full(len(ids), thr, np.float32),
+                    soft=np.full(len(ids), max(0.15 * thr, 1e-4), np.float32))
+        _run()
+
+    for depth in sorted({L.depth for L in brain.layers.values()}):
+        for L in brain.layers.values():
+            if L.depth == depth:
+                _cal(L.ids)
+    rel_map = brain.ids.get("relay", {})
+    if rel_map:
+        _cal(np.concatenate([np.asarray(v).ravel() for v in rel_map.values()]))
+    _cal(np.asarray(brain.pfc_ids))
     eng.cfg.target_active = 0
     eng.act[:] = 0.0
