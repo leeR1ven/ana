@@ -518,11 +518,13 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         eng.set_thr(cpg, thr=np.full(_cpg, 0.7, np.float32),
                     soft=np.full(_cpg, 0.25, np.float32))
         # 每个 CPG 单元驱动一批肌肉（按编号轮流）
+        # CPG 驱动运动区：权重必须够大，否则被已有的 ~42 路汇聚输入淹没
+        _cg = float(getattr(spec, "cpg_gain", 2.5))
         for m in range(spec.n_muscle):
             u = cpg[m % _cpg]
             for f_cell in mforce[m]:
                 eng.connect(np.array([f_cell], np.int32), np.array([u], np.int32),
-                            np.array([0.6], np.float32))
+                            np.array([_cg], np.float32))
     # 触觉 → 运动直连（脊髓级反射）：第 i 个触觉通道连到第 i 条腿的抬起类肌肉。
     # 这样"碰到哪条腿，哪条腿抬起来"是结构里长出来的，不用在任务里手写反射。
     if getattr(spec, "touch_reflex", False):
