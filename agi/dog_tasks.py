@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped")
+          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase", "gaze", "lift", "orient", "robust", "recover", "verge", "biped", "goto")
 
 
 def _brain(kw, preset="small"):
@@ -265,6 +265,8 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_verge(kw, ticks, brain=brain)
     if skill == "biped":
         return _run_biped(kw, ticks, brain=brain)
+    if skill == "goto":
+        return _run_goto(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -415,6 +417,26 @@ def _balance_reflex(forces, roll, pitch, gain=0.8, thr=0.15):
         for leg in legs:
             f[leg * 3 + 2] = min(1.0, f[leg * 3 + 2] + gain * min(1.0, abs(pitch) / 0.8))
     return f
+
+
+def _run_goto(kw, ticks, brain=None):
+    """走过去并停在指定距离：需要出发（触发）、用力（调制）、到位后收住（微调）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    for _ in range(ticks):
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, 0.85))))
+        eng.step()
+        body.step(brain.forces())
+    dx = abs(float(body.data.qpos[0]) - x0)
+    return dict(ok=bool((not body.fallen()) and 0.14 <= dx <= 0.22),
+                dx=float(body.data.qpos[0]) - x0, fallen=bool(body.fallen()))
 
 
 def _run_biped(kw, ticks, brain=None):
