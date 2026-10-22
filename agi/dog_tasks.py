@@ -37,7 +37,41 @@ def _brain(kw, preset="small"):
             setattr(sp, k, type(cur)(v))
         except Exception:
             setattr(sp, k, v)
-    return sp, build(sp, verbose=False)
+    brain = build(sp, verbose=False)
+    _wire_clock(brain, kw)
+    return sp, brain
+
+
+def _wire_clock(brain, kw):
+    """把时间环接进运动区，并让每拍真的推进时钟。
+
+    之前狗任务直接调 engine.step()，绕过了 Loop，时间环恒为 0——
+    脑因此只能输出静态姿势（逐拍标准差 0.00000）。
+    """
+    gain = float(kw.get("clock_motor", 0.0))
+    tr = getattr(brain, "time_ring", None)
+    if gain <= 0 or tr is None:
+        return
+    eng = brain.engine
+    ring = np.asarray(tr.ids, dtype=np.int64).ravel()
+    mpfc = np.asarray(brain.motor["mpfc"], dtype=np.int64).ravel()
+    rng = np.random.default_rng(int(kw.get("seed", 0)) + 991)
+    src, dst, w = [], [], []
+    for m in mpfc:
+        for r in rng.choice(ring, 4, replace=False):
+            src.append(int(r))
+            dst.append(int(m))
+            w.append(gain)
+    eng.add_edges(np.array(src, np.int32), np.array(dst, np.int32),
+                  np.array(w, np.float32), group=78)
+    eng.rebuild_backend()
+    _orig_set = eng.set_input
+
+    def _set_with_clock(code):
+        tr.step(eng)                 # 先推进时钟（写进外部输入）
+        return _orig_set(code)       # 再写感觉；顺序反了时钟会被清掉
+
+    eng.set_input = _set_with_clock
 
 
 def _obs(sp, img):

@@ -25,10 +25,11 @@ sys.path.insert(0, ROOT)
 
 from agi.dog_tasks import SKILLS, run_skill          # noqa: E402
 
-PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in", "posture_offset")
+PARAMS = ("k_near", "region_links", "w_lo", "w_hi", "motor_fan_in",
+          "posture_offset", "clock_motor")
 RANGES = {"k_near": (4, 24), "region_links": (0, 128), "w_lo": (0.02, 0.5),
           "w_hi": (0.3, 2.0), "motor_fan_in": (4, 64),
-          "posture_offset": (0.12, 0.6)}
+          "posture_offset": (0.12, 0.6), "clock_motor": (0.0, 0.4)}
 
 
 def random_kw(rng):
@@ -38,7 +39,8 @@ def random_kw(rng):
                 w_lo=float(rng.uniform(0.02, 0.5)),
                 w_hi=float(rng.uniform(0.3, 2.0)),
                 motor_fan_in=int(rng.integers(4, 65)),
-                posture_offset=float(rng.uniform(0.12, 0.6)))
+                posture_offset=float(rng.uniform(0.12, 0.6)),
+                clock_motor=float(rng.uniform(0.0, 0.3)))
 
 
 def mutate(kw, rng):
@@ -51,6 +53,10 @@ def mutate(kw, rng):
         out[k] = float(np.clip(out.get(k, (lo + hi) / 2) * rng.uniform(0.8, 1.25), lo, hi))
     out["motor_fan_in"] = int(np.clip(out.get("motor_fan_in", 8) * rng.uniform(0.6, 1.7), 4, 64))
     out["posture_offset"] = float(np.clip(out.get("posture_offset", 0.12) * rng.uniform(0.85, 1.25), 0.12, 0.6))
+    if rng.random() < 0.15 or out.get("clock_motor", 0.0) == 0.0:
+        out["clock_motor"] = float(np.clip(rng.uniform(0.0, 0.3), 0.0, 0.4))
+    else:
+        out["clock_motor"] = float(np.clip(out["clock_motor"] * rng.uniform(0.8, 1.3), 0.0, 0.4))
     return out
 
 
