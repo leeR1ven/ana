@@ -24,10 +24,10 @@ def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
                     np.full(n, 0.5, np.float32)], 1)
     if getattr(engine, "_final", False):
         ids = engine.grow_units(n, kind="pfc", region="time", depth=0,
-                                thr=0.0, soft=1.0, pos=pos)
+                                thr=0.0, soft=1.0, pos=pos, counted=False)
     else:
         ids = engine.add_block(n, kind="pfc", region="time", depth=0,
-                               thr=0.0, soft=1.0, pos=pos)
+                               thr=0.0, soft=1.0, pos=pos, counted=False)
     rng = np.random.default_rng(seed)
     # 每个扩维单元随机读 k_in 个感觉单元（权重 ~1/k_in）
     pick = src[rng.integers(0, len(src), size=(n, k_in))]
