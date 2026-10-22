@@ -96,6 +96,7 @@ docs/P2_LOG.md        P2（状态→动作蒸馏）第一次尝试与判断
 docs/BWC_NOTES.md     读 born-wired-cortex 的对照笔记（它怎么做/我们怎么做/学什么）
 docs/AUDIT_CODE.md    代码级核对（char brain.py 的实际参数）与两条待补结构
 docs/USER_INTENT.md   你自己的原话摘录（Codex 老对话）——判断的最终依据
+docs/SIMPLE_CORE.md   架构的简单内核（七条），以及我加的脚手架清单
 docs/CONTRACTS.md     模块接口与替换契约
 ```
 

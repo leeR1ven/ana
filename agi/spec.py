@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """ANA 规格：规模、几何、层计划。
 
 这里只放"架构上是什么"，不放"怎么算"。所有数字都能被改，改完 `validate()`
@@ -66,7 +66,9 @@ class Spec:
     layer_ratio: tuple = (2.0, 3.0, 4.0, 5.0)   # L2..L5 = 通道数 × 比例（必须递增）
     k_near: int = 8                             # 每个神经元接上一层几个
     self_copy: bool = True
-    bias_scale: float = 0.0                     # 每个神经元固定的随机偏置（local3d 的做法）                     # 每个神经元额外接"上一层同一位置"一条（local3d 的自身拷贝）
+    bias_scale: float = 0.0                     # 每个神经元固定的随机偏置（local3d 的做法）
+    # >0：用"权重相对阈值" θ·(|b|+Σ|w|) 决定谁亮，关掉 top-k（local3d 的 THRESHOLD_ACTIVATION）
+    threshold_theta: float = 0.5                     # 每个神经元额外接"上一层同一位置"一条（local3d 的自身拷贝）
     l1_active: float = 0.50                     # L1 活跃比例（ON/OFF 各半）
     layer_active: tuple = (0.40, 0.30, 0.20, 0.10)  # L2..L5 的 top-k 比例
     # ---- 前额叶 ----
