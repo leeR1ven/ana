@@ -99,6 +99,7 @@ class Engine:
         # 运行期（finalize 后）
         self.act = np.zeros(0, np.float32)
         self.ext = np.zeros(0, np.float32)
+        self.bias = np.zeros(0, np.float32)      # 每个神经元固定的偏置（出生定，不改）
         self.selected = np.zeros(0, bool)     # 本拍被 top-k 选中的神经元
         # 自适应（习惯化）：驱动减掉自己的滑动平均，再比门槛/top-k
         self.adapt_rate = 0.0
@@ -363,6 +364,7 @@ class Engine:
                 self.group = self.group[keep]
         self.act = np.zeros(self._n, np.float32)
         self.ext = np.zeros(self._n, np.float32)
+        self.bias = np.zeros(self._n, np.float32)
         self.selected = np.zeros(self._n, bool)
         self._base = np.zeros(self._n, np.float32)
         self._adapt_np = np.zeros(self._n, np.float32)
@@ -380,6 +382,9 @@ class Engine:
         if self._backend == "torch":
             self._act_t = torch.from_numpy(self.act)
             self._ext_t = torch.from_numpy(self.ext)
+            self._bias_t = (torch.from_numpy(self.bias)
+                            if getattr(self, "bias", None) is not None and len(self.bias) == self._n
+                            else None)
             self._src_t = torch.as_tensor(self.src.astype(np.int64))
             self._dst_t = torch.as_tensor(self.dst.astype(np.int64))
             self._wp_t = torch.as_tensor(self.wp)
@@ -410,6 +415,8 @@ class Engine:
             b.zero_()
             b.index_add_(0, self._dst_t, self._wp_t * self._sgn_t * self._act_t[self._src_t])
             b.add_(self._ext_t)
+            if self._bias_t is not None:
+                b.add_(self._bias_t)
             if self.adapt_rate > 0.0:
                 b.sub_(self._base_t)                 # 只保留"相对自己的变化"
                 self._base_t.add_(b * self._adapt_t)  # base += rate·(raw-base)
@@ -420,6 +427,7 @@ class Engine:
         d = np.bincount(self.dst, weights=self.wp * self.sgn * self.act[self.src],
                         minlength=self._n).astype(np.float32)
         d += self.ext
+        d += self.bias
         if self.adapt_rate > 0.0:
             raw = d.copy()
             d -= self._base
@@ -563,6 +571,7 @@ class Engine:
         self._alive_f = np.r_[self._alive_f, np.ones(size, bool)]
         self.act = np.r_[self.act_np, np.zeros(size, np.float32)]
         self.ext = np.r_[self.ext, np.zeros(size, np.float32)]
+        self.bias = np.r_[self.bias, np.zeros(size, np.float32)]
         self._base = np.r_[self._base, np.zeros(size, np.float32)]
         self._adapt_np = np.r_[self._adapt_np, np.zeros(size, np.float32)]
         self._prio = np.r_[self._prio, np.zeros(size, np.float32)]

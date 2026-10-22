@@ -317,6 +317,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
     eng.input_size = n_in
 
     # ---------------------------------------------------------- 2. 区内链
+    bias_plan: list = []          # 出生偏置：等 finalize() 之后数组才有大小
     for r in spec.active_regions():
         C = ch[r]
         H, W, cpp = _grid_for(r, spec)
@@ -358,6 +359,9 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                                 thr=0.0, soft=1.0,
                                 pos=_layer_positions(geo, r, H, W, R,
                                                      geo.layer_x(depth), rng))
+            if spec.bias_scale > 0:
+                bias_plan.append((blk, rng.uniform(0.0, spec.bias_scale,
+                                                   len(blk)).astype(np.float32)))
             connect_near(eng, blk, prev, src_geo=prev_geo, dst_geo=g,
                          k=spec.k_near, rng=rng, group=G.FWD)
             if spec.self_copy:
