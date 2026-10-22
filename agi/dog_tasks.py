@@ -24,7 +24,7 @@ from agi.encoding import Observation       # noqa: E402
 SKILLS = ("walk0", "walk1", "walk2", "walk3", "walk4", "walk5", "walk_to_ball",
           "turn1", "turn2", "turn3", "getup0", "getup1", "getup2", "getup3",
           "follow", "follow2", "obstacle", "obstacle2", "march",
-          "back", "tilt", "lie", "spin", "crawl", "shake")
+          "back", "tilt", "lie", "spin", "crawl", "shake", "jump", "detour", "chase")
 
 
 def _brain(kw, preset="small"):
@@ -189,6 +189,12 @@ def run_skill(kw, skill, ticks=100, brain=None):
         return _run_crawl(kw, ticks, brain=brain)
     if skill == "shake":
         return _run_shake(kw, ticks, brain=brain)
+    if skill == "jump":
+        return _run_jump(kw, ticks, brain=brain)
+    if skill == "detour":
+        return _run_detour(kw, ticks, brain=brain)
+    if skill == "chase":
+        return _run_chase(kw, ticks, brain=brain)
     if skill == "march":
         return _run_march(kw, ticks, brain=brain)
 
@@ -285,6 +291,74 @@ def _run_follow(kw, ticks, brain=None, strict=False):
     diff = out["lr"] - out["rl"]
     need = 0.010 if strict else 0.004
     return dict(ok=abs(diff) > need, dy_follow=diff, fallen=False)
+
+
+def _run_jump(kw, ticks, brain=None):
+    """跃过障碍：视野下方一条矮蓝条，要求跨过去（位移 > 10cm 且不摔）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    x0 = float(body.data.qpos[0])
+    px = sp.px
+    for _ in range(ticks):
+        img = _ball(sp, 0.5).copy()
+        img[int(px * 0.62):int(px * 0.75), px // 3: 2 * px // 3] = np.array([0.1, 0.2, 0.95], np.float32)
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, img)))
+        eng.step()
+        body.step(brain.forces())
+    dx = float(body.data.qpos[0]) - x0
+    return dict(ok=(not body.fallen()) and abs(dx) > 0.10, dx=dx, fallen=bool(body.fallen()))
+
+
+def _run_detour(kw, ticks, brain=None):
+    """绕过障碍：障碍只在视野右半，要求往左让开（dy 明显为负）。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+    body.reset()
+    body.data.qpos[2] = 0.24
+    body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+    body.mj.mj_forward(body.model, body.data)
+    y0 = float(body.data.qpos[1])
+    px = sp.px
+    for _ in range(ticks):
+        img = _ball(sp, 0.5).copy()
+        img[px // 2:, int(px * 0.6):] = np.array([0.1, 0.2, 0.95], np.float32)
+        eng.clear_external()
+        eng.set_input(brain.encoder.encode(_obs(sp, img)))
+        eng.step()
+        body.step(brain.forces())
+    dy = float(body.data.qpos[1]) - y0
+    return dict(ok=(not body.fallen()) and dy < -0.03, dy=dy, fallen=bool(body.fallen()))
+
+
+def _run_chase(kw, ticks, brain=None):
+    """追移动物体：球从一端扫到另一端，要求机体横向位移与球同向。"""
+    sp, brain = (brain.spec, brain) if brain is not None else _brain(kw)
+    eng = brain.engine
+    out = {}
+    for tag, (a, b) in (("lr", (0.2, 0.8)), ("rl", (0.8, 0.2))):
+        body = Go2Body(posture_offset=float(kw.get("posture_offset", 0.12)))
+        body.reset()
+        body.data.qpos[2] = 0.24
+        body.data.qpos[7:19] = np.array([0.0, 1.0, -2.0] * 4)
+        body.mj.mj_forward(body.model, body.data)
+        y0 = float(body.data.qpos[1])
+        for t in range(ticks):
+            x = a + (b - a) * t / max(1, ticks - 1)
+            eng.clear_external()
+            eng.set_input(brain.encoder.encode(_obs(sp, _ball(sp, x))))
+            eng.step()
+            body.step(brain.forces())
+        out[tag] = float(body.data.qpos[1]) - y0
+    same = out["lr"] < out["rl"]        # 球向左移时，机体也往左（dy 更小）
+    return dict(ok=bool(same) and abs(out["lr"] - out["rl"]) > 0.02,
+                lr=out["lr"], rl=out["rl"], fallen=False)
 
 
 def _run_spin(kw, ticks, brain=None):
