@@ -514,7 +514,7 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
                 f = mforce[m]
                 eng.connect(np.tile(f, 16), np.repeat(winh, spec.n_force),
                             np.full(16 * spec.n_force, wgt, np.float32),
-                            group=G.MOTOR_BLOCK)
+                            group=77)          # 用全新组号，避开 MOTOR_BLOCK 可能的特殊语义
 
     # 门控：I（抑制）/ D（去抑制）
     nonmotor = np.concatenate([v for v in pfc_groups.values()])
