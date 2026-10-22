@@ -15,7 +15,8 @@ import numpy as np
 
 
 def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
-                  active_frac: float = 0.02, group: int = 66, seed: int = 13):
+                  active_frac: float = 0.02, group: int = 66, seed: int = 13,
+                  region: str = "time"):
     """建一层扩维去相关单元，返回它们的编号。"""
     src = np.asarray(src_ids, np.int64)
     n = int(len(src) * factor)
@@ -23,10 +24,10 @@ def build_dentate(engine, src_ids, factor: int = 4, k_in: int = 8,
                     np.linspace(0, 1, n, dtype=np.float32),
                     np.full(n, 0.5, np.float32)], 1)
     if getattr(engine, "_final", False):
-        ids = engine.grow_units(n, kind="pfc", region="time", depth=0,
+        ids = engine.grow_units(n, kind="pfc", region=region, depth=0,
                                 thr=0.0, soft=1.0, pos=pos, counted=False)
     else:
-        ids = engine.add_block(n, kind="pfc", region="time", depth=0,
+        ids = engine.add_block(n, kind="pfc", region=region, depth=0,
                                thr=0.0, soft=1.0, pos=pos, counted=False)
     rng = np.random.default_rng(seed)
     # 每个扩维单元随机读 k_in 个感觉单元（权重 ~1/k_in）

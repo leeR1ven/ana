@@ -30,6 +30,7 @@ class Consolidator:
         self.cap = int(cap)
         self.flush_every = max(1, int(flush_every))
         self.match = float(match)
+        self.rng = np.random.default_rng(3)
         self.templates: list[dict] = []       # 见过的转移（模糊匹配）
         self.w: dict[int, float] = {}
         self.prev: np.ndarray | None = None
@@ -42,6 +43,12 @@ class Consolidator:
                     and _overlap(cur, tp["b"]) > self.match):
                 return tp
         return None
+
+    def _sample(self, ids) -> np.ndarray:
+        ids = np.asarray(ids)
+        if len(ids) <= self.cap:
+            return ids
+        return ids[self.rng.choice(len(ids), self.cap, replace=False)]
 
     def step(self, active) -> None:
         cur = np.asarray(sorted(set(int(x) for x in active)), np.int64)
