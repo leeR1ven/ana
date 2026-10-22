@@ -1033,3 +1033,12 @@ walk0/1/2/3, walk_to_ball, turn1, turn2, getup0/1/2, follow, obstacle, march  = 
 | `gaze`（追视） | ✅ 通过 |
 
 未过 8 项：`robust`、`back`、`lie`、`spin`、`crawl`、`obstacle2`、`turn3`、`chase`。
+
+### 双向动作下重跑：26/35（2026-10-22）
+
+`ANA_BIDIR=1`（力度映射到 −1~+1，能前后蹬）后重跑演化，第 2 代到 **26/35**：
+
+新通过：**`back`（后退）**、**`robust`（随机推力不摔）**、**`biped`（两腿站立）**，
+并且 `walk0–4` 全部保住（前进没有因为双向映射垮掉——演化学会了输出偏正的力度）。
+
+仍缺：`walk5`(0.30m)、`turn3`(0.30rad)、`obstacle2`、`lie`(趴下)、`spin`(转一圈)、`crawl`(低姿爬行)、`chase`(追移动物体)。
