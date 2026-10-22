@@ -1026,3 +1026,11 @@ def _obs_stereo(sp, left, right):
     img[h:] = half(right)
     return img
 
+def _ball_xy(sp, x_norm, y_norm, size=0.18):
+    """把红球画在画面 (x, y) 处：y=0 顶部（高处），y=1 底部（地上）。"""
+    from agi.world import _blob
+    px = sp.px
+    return np.maximum(np.full((px, px, 3), 0.05, np.float32),
+                      _blob(px, float(np.clip(x_norm, 0.05, 0.95)),
+                            float(np.clip(y_norm, 0.05, 0.95)), size, (0.95, 0.2, 0.1)))
+
