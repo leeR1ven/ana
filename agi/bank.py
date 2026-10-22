@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import numpy as np
 
 from .spec import build_spec
@@ -389,7 +390,8 @@ def run_external(py=None):
                                capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
                                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             hit = must in (r.stdout or "")
-        except Exception:
+        except Exception as _e:
+            print(f"    （外部题异常：{type(_e).__name__}: {_e}）")
             hit = False
         ok += hit
         bad += (not hit)
