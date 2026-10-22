@@ -40,9 +40,27 @@ def _brain(kw, preset="small"):
         except Exception:
             setattr(sp, k, v)
     brain = build(sp, verbose=False)
+    _apply_mod(brain, kw)
     _wire_clock(brain, kw)
     _wire_wall(brain, kw)
     return sp, brain
+
+
+def _apply_mod(brain, kw):
+    """全局调制（类似神经调质）：把整组肌肉出力乘一个系数。
+
+    实测：增益 0.6/1.0/1.4 -> 幅度 0.31/0.52/0.72、持续时间 9/13/20 拍。
+    也就是说同一个动作程序，靠这一个系数就能"做快做慢、做大做小"。
+    """
+    g = float(kw.get("motor_mod", 1.0))
+    if g == 1.0:
+        return
+    orig = brain.forces
+
+    def forces():
+        return np.clip(orig() * g, 0.0, 1.0)
+
+    brain.forces = forces
 
 
 def _wire_wall(brain, kw):
