@@ -112,6 +112,10 @@ class Spec:
     dentate_factor: int = 2                       # 扩维去相关层（仿齿状回）：默认开
     long_term: bool = True                        # 反复出现 → 皮层长期连接：默认开
     recall_out: bool = True                       # 回忆读出神经元（不占名额）
+    balance_sectors: int = 0                      # 平衡环：36 个方向（0=关）
+    balance_per_sector: int = 0                   # 每方向神经元数（20）
+    balance_to_force: bool = False                 # 平衡环直连力度细胞（脊髓级）
+    balance_gain: float = 0.5                     # 平衡环 → 运动前额叶权重
     hippo_size: int = 512                          # 海马体单元数（和 PFС 同机制：汇聚 + 可塑连接）
     n_time: int = 0                              # 时间链已废弃（改用链式神经元→海马体）                             # 海马体时间环的格子数（0 = 不加）
     hippo_bind: bool = True                       # 每拍把前额叶活动绑到当前时间格上

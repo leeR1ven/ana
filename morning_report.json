@@ -1,0 +1,133 @@
+{
+  "model": "champion.json",
+  "passed": [
+    "gait",
+    "walk0",
+    "walk2",
+    "walk4",
+    "turn1",
+    "turn2",
+    "turn3",
+    "reach",
+    "orbit",
+    "follow",
+    "gaze",
+    "biped",
+    "lift"
+  ],
+  "detail": {
+    "gait": {
+      "ok": true,
+      "dx": 0.7455155225415615,
+      "maxh": 0.38057429661820963,
+      "diag": 0.060200634563164726,
+      "amp": 25.775191603264073,
+      "hmean": 0.30948592867246333,
+      "swing": 4.0,
+      "fallen": true
+    },
+    "walk0": {
+      "ok": true,
+      "dx": 0.9887273280878327,
+      "fallen": false
+    },
+    "walk2": {
+      "ok": true,
+      "dx": 0.9887273280878327,
+      "fallen": false
+    },
+    "walk4": {
+      "ok": true,
+      "dx": 0.9887273280878327,
+      "fallen": false
+    },
+    "turn1": {
+      "ok": true,
+      "dyaw": 1.0539011582814644,
+      "fallen": false
+    },
+    "turn2": {
+      "ok": true,
+      "dyaw": 1.0539011582814644,
+      "fallen": false
+    },
+    "turn3": {
+      "ok": true,
+      "dyaw": 1.0539011582814644,
+      "fallen": false
+    },
+    "getup0": {
+      "ok": false,
+      "height": 0.06642001670101394,
+      "fallen": true
+    },
+    "getup2": {
+      "ok": false,
+      "height": 0.06642001670101394,
+      "fallen": true
+    },
+    "reach": {
+      "ok": true,
+      "height": 0.3347278021407817,
+      "fallen": false
+    },
+    "orbit": {
+      "ok": true,
+      "yaw": 1.053901158281461,
+      "fallen": false
+    },
+    "tilt": {
+      "ok": false,
+      "roll": 3.0380623051031255,
+      "height": 0.06276661052687349,
+      "fallen": true
+    },
+    "follow": {
+      "ok": true,
+      "dy_follow": 0.06529373989744397,
+      "fallen": false
+    },
+    "gaze": {
+      "ok": true,
+      "center": 0.5,
+      "err": 0.0,
+      "fallen": false
+    },
+    "biped": {
+      "ok": true,
+      "height": 0.3347278021407817,
+      "pitch": -0.12652161589992394,
+      "fallen": false
+    },
+    "lift": {
+      "ok": true,
+      "mine": 21.73828253837247,
+      "others": 20.487972757821375,
+      "fallen": true
+    },
+    "back": {
+      "ok": false,
+      "dx": 0.9887273280878327,
+      "fallen": false
+    },
+    "obstacle": {
+      "ok": false,
+      "dx_free": 0.9887273280878327,
+      "dx_wall": 0.4179054341329657,
+      "force_free": 0.2049999984834964,
+      "force_wall": 0.2141666648754229,
+      "fallen": false
+    },
+    "robust": {
+      "ok": false,
+      "dx": 0.6584640480460877,
+      "fell": true,
+      "fallen": true
+    },
+    "recover": {
+      "ok": false,
+      "height": 0.0626428804837018,
+      "fallen": true
+    }
+  }
+}

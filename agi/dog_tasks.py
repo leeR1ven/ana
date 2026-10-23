@@ -515,7 +515,9 @@ def _run_gait(kw, ticks, brain=None):
     amp = float(np.degrees(q.max(0) - q.min(0)).mean())
     dx = abs(float(body.data.qpos[0]) - x0)
     hi = max(hs)
-    ok = (hi < 0.45) and (diag < 0.30) and (amp > 8.0) and (dx > 0.05) and swing_ok
+    # 必须不摔倒：之前漏了这条，导致"动几下就倒"也算通过（可视化一眼就看出来）
+    ok = ((hi < 0.45) and (diag < 0.30) and (amp > 8.0) and (dx > 0.05)
+          and swing_ok and (not body.fallen()))
     return dict(ok=bool(ok), dx=dx, maxh=float(hi), diag=float(diag), amp=amp,
                 hmean=float(np.mean(hs)), swing=float((stance < 0.95).sum()),
                 fallen=bool(body.fallen()))
@@ -732,7 +734,7 @@ def _run_orient(kw, ticks, brain=None):
             body.step(brain.forces())
         out[tag] = float(body.state()["yaw"]) - yaw0
     diff = out["left"] - out["right"]
-    return dict(ok=bool(abs(diff) > 0.03), dyaw_left=out["left"],
+    return dict(ok=bool(abs(diff) > 0.03) and (not body.fallen()), dyaw_left=out["left"],
                 dyaw_right=out["right"], fallen=False)
 
 
@@ -853,7 +855,8 @@ def _run_chase(kw, ticks, brain=None):
             body.step(brain.forces())
         out[tag] = float(body.data.qpos[1]) - y0
     same = out["lr"] < out["rl"]        # 球向左移时，机体也往左（dy 更小）
-    return dict(ok=bool(same) and abs(out["lr"] - out["rl"]) > 0.02,
+    return dict(ok=bool(same) and abs(out["lr"] - out["rl"]) > 0.02
+                and (not body.fallen()),
                 lr=out["lr"], rl=out["rl"], fallen=False)
 
 
@@ -964,7 +967,8 @@ def _run_tilt(kw, ticks, brain=None):
         body.step(brain.forces())
     st = body.state()
     ok = (not body.fallen()) and abs(st["roll"]) < 0.25 and st["height"] > 0.22
-    return dict(ok=bool(ok), roll=float(st["roll"]), height=float(st["height"]),
+    return dict(ok=bool(ok) and (not body.fallen()), roll=float(st["roll"]),
+                height=float(st["height"]),
                 fallen=bool(body.fallen()))
 
 
@@ -1122,3 +1126,34 @@ def _hebb_step(eng, group=90, lr=0.7):
     eng.wp[m] = new
     return int((new > w + 1e-6).sum())
 
+def _drive_balance(eng, brain, roll, pitch, sectors=36, per=20, scale=10.0):
+    # scale：倾角是弧度（0.05~0.9），而神经元阈值是 0.05~0.95。
+    # 不放大就永远够不到阈值——实测环从不点亮（ext 最大 0.03）。
+
+    """36 方向 × 20 神经元（正反各 10），温度计 + 正反拮抗。
+
+    * 温度计：每方向内 10 个神经元阈值递增，外部输入的大小决定亮几个，
+      "亮着的个数 = 倾倒程度"（不在代码里硬算数量）。
+    * 正反：倾斜在某方向上的分量为正 → 该方向正族收到输入；
+      为负 → 该方向反族收到输入（反族接运动区是抑制权重）。
+    """
+    ids = brain.motor.get("balance_ring")
+    if ids is None:
+        return
+    ids = np.asarray(ids, dtype=np.int64).ravel()
+    mag = float(np.hypot(roll, pitch)) * float(scale)
+    if mag < 1e-4:
+        return
+    theta = float(np.arctan2(roll, pitch))
+    ext = np.asarray(eng.ext)
+    half = per // 2
+    for k in range(sectors):
+        ang = 2.0 * np.pi * k / sectors
+        comp = mag * float(np.cos(theta - ang))
+        if abs(comp) < 1e-3:
+            continue
+        base = k * per
+        if comp > 0:
+            ext[ids[base: base + half]] = comp
+        else:
+            ext[ids[base + half: base + per]] = -comp

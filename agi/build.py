@@ -537,7 +537,13 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         # CPG 驱动运动区：权重必须够大，否则被已有的 ~42 路汇聚输入淹没
         _cg = float(getattr(spec, "cpg_gain", 2.5))
         for m in range(spec.n_muscle):
-            u = cpg[m % _cpg]
+            # 手工 trot 连线：对角腿同相（FL+RR 同相，FR+RL 反相）。
+            # 先给一个"粗糙但能做"的解，再在此基础上随机变异。
+            if str(getattr(spec, "trot", "")).lower() in ("1", "true", "yes"):
+                _phase = (0.0, 0.5, 0.5, 0.0)[(m // 3) % 4]
+                u = cpg[int(round(_phase * _cpg)) % _cpg]
+            else:
+                u = cpg[m % _cpg]
             for f_cell in mforce[m]:
                 eng.connect(np.array([f_cell], np.int32), np.array([u], np.int32),
                             np.array([_cg], np.float32))
@@ -675,6 +681,42 @@ def build(spec: Spec | None = None, engine_cfg: EngineConfig | None = None,
         ids["recall_out"] = eng.add_block(len(_dg), kind="pfc", region="time",
                                           depth=0, thr=0.1, soft=0.5,
                                           pos=_pos, counted=False)
+
+    # ---- 平衡环（36 方向 × 20 个神经元，正/反各 10）：用激活数量表示倾倒程度 ----
+    _sectors = int(getattr(spec, "balance_sectors", 0))
+    _per = int(getattr(spec, "balance_per_sector", 0))
+    if _sectors > 0 and _per > 0:
+        bring = eng.add_block(_sectors * _per, kind="pfc", region="balance_ring",
+                              depth=0, thr=0.0, soft=1.0)
+        motor["balance_ring"] = bring
+        ids["balance_ring"] = bring
+        # 环 → 运动前额叶：倾斜方向与程度影响运动输出（补偿动作的来源）
+        _w = float(getattr(spec, "balance_gain", 0.5))
+        # 接哪里：mpfc（绕远路，延迟大）或 force（脊髓级，快一个数量级）
+        _b2f = str(getattr(spec, "balance_to_force", "")).lower() in ("1", "true", "yes")
+        for i in range(_sectors):
+            sel = bring[i * _per:(i + 1) * _per]
+            half = _per // 2
+            if _b2f:
+                # 每个方向对应一条腿（36/4 = 9 个方向一条腿），直接接该腿的力度细胞
+                _leg = int(i * spec.n_muscle / _sectors) // 3
+                tgt = int(mforce[min(spec.n_muscle - 1, _leg * 3)][0])
+            else:
+                tgt = mpfc[(i * len(mpfc)) // _sectors]
+            # 正神经元：兴奋运动区
+            eng.connect(np.full(half, int(tgt), np.int32),
+                        np.asarray(sel[:half], np.int32),
+                        np.full(half, _w, np.float32))
+            # 反神经元：抑制运动区（拮抗对，push-pull）
+            eng.connect(np.full(half, int(tgt), np.int32),
+                        np.asarray(sel[half:], np.int32),
+                        np.full(half, -_w, np.float32))
+        # 温度计机制：每个方向内 20 个神经元的阈值**递增**（0.05 → 0.95），
+        # 外部输入的大小决定亮几个（亮着的个数 = 倾倒程度）。
+        half = _per // 2
+        ladder = np.linspace(0.05, 0.95, half, dtype=np.float32)
+        thr_vec = np.concatenate([ladder, ladder] * _sectors)
+        eng.set_thr(bring, thr=thr_vec, soft=np.full(len(thr_vec), 0.12, np.float32))
 
     # ---- 海马体：和"前额叶"同一种机制（汇聚 + 可塑连接），只是输入来自各区 L5 ----
     # 用户：海马体和前额叶机制很像 —— 都是"把下层链式信号汇聚起来，再靠连接承载内容"。
